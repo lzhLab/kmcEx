@@ -1,7 +1,7 @@
 KMC_API_DIR = kmc_api
 
 CC      = g++
-CFLAGS  = -Wall -O3 -m64 -fopenmp -std=c++11
+CFLAGS  = -O3 -m64 -fopenmp -std=c++11
 
 .cpp.o:
 	$(CC) $(CFLAGS) -c $< -o $@

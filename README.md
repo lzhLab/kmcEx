@@ -2,7 +2,7 @@
 The k-mers along with their frequency have been served as the elementary building block for error correction, repeat detection, multiple sequence alignment, genome assembly, etc, attracting intensive studies in k-mer counting. However, the result of k-mer counters itself is pretty large; very often, it is too large to ﬁt into the main memory, which in turn signiﬁcantly narrows down its usability. To overcome this bottleneck, we introduce a very novel idea of encoding k-mers as well as their frequency achieving ultra memory saving and retrieval eﬃcient. Precisely, we propose a Bloom Filter-like data structure to encode kmers as well as their frequency by coupling-bit arrays— one for k-mer representation and the other for frequency encoding. Experimental results conducted on ﬁve real data sets show that the compression ratio is as high as 7.8 via encoding. Besides, we have achieved constant time complexity in retrieving a k-mer as well as its frequency and two magnitudes smaller false positive rate.
 
 # installation 
-kmcEx is based on **C++11**，and the installation step is very simple, in the kmodel main directory run 'make'  command, then you can get the executable kmcEx.
+kmcEx is based on **C++11**，and the installation step is very simple, in the main directory run 'make'  command, then you can get the executable kmcEx.
 ```
 make # run in the main directory 
 ```
