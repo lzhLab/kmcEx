@@ -46,7 +46,7 @@ int occ=kmodel->kmer_to_occ(kmer) //get the occurrence of the kmer
 ```
 
 load a model from  the disk
-```
+```C++
 #include "kmodel.hpp"
 KModel* kmodel = new KModel();
 kmodel->load_model(model_dir); //load the model from the disk
