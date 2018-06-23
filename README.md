@@ -10,7 +10,7 @@ make # run in the main directory
 how to use  the executable kmcEx to test
 ```
 1. USAGE
-    kmcEx [options] <input_file_name> <output_file_name> <working_directory>
+	kmcEx [options] <input_file_name> <output_file_name> <working_directory>
 	kmcEx [options] <@input_file_names> <output_file_name> <working_directory>
 
 2. OPTIONS;
