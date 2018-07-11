@@ -96,10 +96,10 @@ public:
 		kmer_data_base.Close();
 	}
 
+	//if this kmer can't be found,it will return 0
 	int kmer_to_occ(string kmer) {
 		int occ = get_kmer_from_map(kmer);
-		if (occ != -1)
-			return occ;
+		if (occ != -1) return occ;
 		int count = 0;
 		int bin = kmer_to_bin(kmer, count);
 		occ = occu_bin->bin_to_mean(bin);
@@ -143,17 +143,17 @@ public:
 	int kmer_to_bin(string kmer, int &len_v_bin) {
 		vector<int> v_bin = find_bitarray(kmer);
 		len_v_bin = v_bin.size();
-		if (len_v_bin <= 1) {
+		if (len_v_bin == 1) {
 			//if (gt_bin != v_bin[0]) printf("%d %d\n", gt_bin, v_bin[0]);
 			return v_bin[0]; //only one
 		}
 		//k can be found in more than one coupling-bit arrays.
 		vector<int> v_candidates = get_neighbor_kmer_bin(kmer);
 		int len_v_can = v_candidates.size();
-		if (len_v_can <= 0)//no any candidates,get the minimum bin
+		if (len_v_can <= 0 && len_v_bin > 1)//no any candidates,get the minimum bin
 			return Tools::vector_min(v_bin);
 		//get the best bin
-		int min_dist = 9999, best_bin;
+		int min_dist = 9999, best_bin=0;
 		for (int i = 0; i < len_v_bin; i++) {
 			int cur_dist = 0;
 			for (int j = 0; j < len_v_can; j++) {
