@@ -194,7 +194,7 @@ bool CKMCFile::ReadParamsFrom_prefix_file_buf(uint64 &size)
 	result = fread(&max_count, 1, sizeof(uint32), file_pre);
 	original_max_count = max_count;
 	result = fread(&total_kmers, 1, sizeof(uint64), file_pre);
-	
+
 	signature_map_size = ((1 << (2 * signature_len)) + 1);
 	uint64 lut_area_size_in_bytes = size - (signature_map_size * sizeof(uint32) + header_offset + 8);
 	single_LUT_size = 1 << (2 * lut_prefix_length);
@@ -349,7 +349,7 @@ bool CKMCFile::Eof(void)
 //-----------------------------------------------------------------------------------------------
 bool CKMCFile::ReadNextKmer(CKmerAPI &kmer, float &count)
 {
-	uint32 int_counter;
+	uint64 int_counter;
 
 	if(is_opened != opened_for_listing)
 		return false;
@@ -366,22 +366,22 @@ bool CKMCFile::ReadNextKmer(CKmerAPI &kmer, float &count)
 				prefix_index++;
 		}
 	
-		uint32 off = (sizeof(prefix_index) * 8) - (lut_prefix_length * 2) - kmer.byte_alignment * 2;
+		uint64 off = (sizeof(prefix_index) * 8) - (lut_prefix_length * 2) - kmer.byte_alignment * 2;
 			
 		uint64 temp_prefix = prefix_index << off;	// shift prefix towards MSD
 		
 		kmer.kmer_data[0] = temp_prefix;			// store prefix in an object CKmerAPI
 
-		for(uint32 i = 1; i < kmer.no_of_rows; i++)
+		for(uint64 i = 1; i < kmer.no_of_rows; i++)
 			kmer.kmer_data[i] = 0;
 
 		//read sufix:
-		uint32 row_index = 0;
+		uint64 row_index = 0;
  		uint64 suf = 0;
 	
 		off = off - 8;
 				
- 		for(uint32 a = 0; a < sufix_size; a ++)
+ 		for(uint64 a = 0; a < sufix_size; a ++)
 		{
 			if(index_in_partial_buf == part_size)
 				Reload_sufix_file_buf();
@@ -405,12 +405,12 @@ bool CKMCFile::ReadNextKmer(CKmerAPI &kmer, float &count)
 		
 		int_counter = sufix_file_buf[index_in_partial_buf++];
 
-		for(uint32 b = 1; b < counter_size; b++)
+		for(uint64 b = 1; b < counter_size; b++)
 		{
 			if(index_in_partial_buf == part_size)
 				Reload_sufix_file_buf();
 			
-			uint32 aux = 0x000000ff & sufix_file_buf[index_in_partial_buf++];
+			uint64 aux = 0x000000ff & sufix_file_buf[index_in_partial_buf++];
 			aux = aux << 8 * ( b);
 			int_counter = aux | int_counter;
 		}
@@ -581,14 +581,14 @@ bool CKMCFile::IsKmer(CKmerAPI &kmer)
 // RET	: total number of kmers or 0 if a database has not been opened
 //-----------------------------------------------------------------------------------------
 uint64 CKMCFile::KmerCount(void)
-{	
+{
 	if(is_opened)
 		if((min_count == original_min_count) && (max_count == original_max_count))
 			return total_kmers;
 		else
 		{
-			uint64 count;
-			uint64 int_counter;
+			uint32 count;
+			uint32 int_counter;
 			uint64 aux_kmerCount = 0;
 
 			if(is_opened == opened_for_RA)
@@ -601,9 +601,9 @@ uint64 CKMCFile::KmerCount(void)
 					int_counter = *ptr;
 					ptr++;
 
-					for(uint64 b = 1; b < counter_size; b ++)
+					for(uint32 b = 1; b < counter_size; b ++)
 					{
-						uint64 aux = (uint64_t)0x000000ff & *(ptr);
+						uint32 aux = 0x000000ff & *(ptr);
 						aux = aux << 8 * ( b);
 						int_counter = aux | int_counter;
 						ptr++;

@@ -34,7 +34,7 @@ class CKMCFile
 	uint32 signature_map_size;
 	
 	uchar* sufix_file_buf;
-	uint32 sufix_number;			// The sufix's number to be listed
+	uint64 sufix_number;			// The sufix's number to be listed
 	uint64 index_in_partial_buf;	// The current byte's number in an array "sufix_file_buf", for listing mode
 
 	uint32 kmer_length;
