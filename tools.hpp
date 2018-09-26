@@ -15,13 +15,6 @@ const uint32_t HashSeeds[32] =
 	110842351,112019693,113206337,114410599,115627249,116852959,118092629,119349731
 };
 
-//const uint32_t HashSeeds[32] =
-//{
-//	93617369,112019693,96628801,119349731,106262993,86941489,98690023,95612849,91657987,99740651,90695933,108525269,
-//	97653247,101870663,105144551,86028157,92632703,94610833,110842351,118092629,107388563,114410599,109676867,
-//	89743943,115627249,100801609,113206337,104041079,88799033,102948731,116852959,87866957,
-//};
-
 
 
 
@@ -29,7 +22,7 @@ class Tools
 {
 public:
 	//the hash funtion
-	static uint64_t murmur_hash64(const void * key, int len, uint32_t seed)
+	inline static uint64_t murmur_hash64(const void * key, int len, uint32_t seed)
 	{
 		const uint64_t m = 0xc6a4a7935bd1e995;
 		const int r = 47;
@@ -64,6 +57,7 @@ public:
 		h ^= h >> r;
 		return h;
 	}
+
 
 	//binary convert into decimal
 	static int bin_to_decimal(uint8_t *arr, int length) {
@@ -131,7 +125,6 @@ public:
 	}
 
 	static std::string get_complementation(std::string kmer) {
-
 		string com = "";
 		std::map<char, char> c2c = { { 'A','T' },{ 'C','G' },{ 'T','A' },{ 'G','C' } };
 		for (int i = kmer.length() - 1; i >= 0; i--) {

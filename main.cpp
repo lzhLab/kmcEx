@@ -1,5 +1,6 @@
 #include "kmodel.hpp"
 #include <stdlib.h>
+#include "omp.h"
 
 
 struct KParams {
@@ -7,22 +8,23 @@ struct KParams {
 	int num_hash = 7; // hashfunction number
 	int num_bit = 4; //the number of bit array, default is 4
 	int ci = 2; //exclude k - mers occurring less than <value> times(default: 2)
-	int cx = 1000000000; //-cx<value> -exclude k - mers occurring more of than <value> times(default: 1e9)
-	int cs = 1001; //-cs<value> -maximal value of a counter(default: 1001,exclude 1001)
-	int t = 0; // -t<value> - total number of threads (default: no. of CPU cores)
+	int cx = 1000; //-cx<value> -exclude k - mers occurring more of than <value> times(default: 1000)
+	int cs = 1000; //-cs<value> -maximal value of a counter(default: 1000)
+	int t = 4; // -t<value> - total number of threads (default: 4)
+	int test = 0; //whether testing the model
 	string input_file_name;
 	string output_file_name;
 	string working_directory = "/tmp";
 
-};
-KParams Params;
+}Params;
+
 
 void read_me() {
 	cout << "----------------------------------------------------------------------" << endl;
 	cout << "           kmcEx: Kmer count Model tool" << endl;
 	cout << "----------------------------------------------------------------------" << endl;
-	cout << "VERSION: 1.01" << endl;
-	cout << "DATE   : April.10, 2018" << endl;
+	cout << "VERSION: 1.02" << endl;
+	cout << "DATE   : JULY.20, 2018" << endl;
 	cout << "----------------------------------------------------------------------" << endl << endl;
 	cout << "1. USAGE" << endl;
 	cout << "     kmcEx [options] <input_file_name> <output_file_name> <working_directory>" << endl;
@@ -33,13 +35,14 @@ void read_me() {
 	cout << "		@input_file_names - file name with list of input files in FASTQ format (gziped or not)" << endl;
 	cout << "		working_directory -save some temporary files" << endl;
 	cout << "	2) OPTIONAL" << endl;
-	cout << "		-k<len> - k-mer length (k from 10 to 256; default: 25" << endl;
-	cout << "		-t<value> - total number of threads (default: no. of CPU cores)" << endl;
+	cout << "		-k<len> - k-mer length (k<=31; default: 25)" << endl;
+	cout << "		-t<value> - total number of threads (default: 4)" << endl;
 	cout << "		-ci<value> - exclude k-mers occurring less than <value> times (default: 2)" << endl;
-	cout << "		-cx<value> - exclude k-mers occurring more of than <value> times (default: 1e9)" << endl;
-	cout << "		-cs<value> - maximal value of a counter(default: 1001,exclude)" << endl;
+	cout << "		-cx<value> - exclude k-mers occurring more of than <value> times (default: 1000)" << endl;
+	cout << "		-cs<value> - maximal value of a counter(default: 1000)" << endl;
 	cout << "		-nh<value> - number of hash (default: 7)" << endl;
 	cout << "		-nb<value> - number of bit array (default: 4)" << endl;
+	cout << "		-test<value> -test the model (0 or 1 default: 0)" << endl;
 	cout << "3. EXAMPLES" << endl;
 	cout << "	kmcEx -k27 -nh7 -nb4  rs.fastq rs.res /tmp" << endl;
 	cout << "	kmcEx -k27 -nh7 -nb4  @rs.lst rs.res /tmp" << endl << endl;
@@ -82,6 +85,9 @@ bool parse_parameters(int argc, char *argv[]) {
 		//maximal value of a counter
 		else if (strncmp(argv[i], "-cs", 3) == 0)
 			Params.cs = atoi(&argv[i][3]);
+		else if (strncmp(argv[i], "-test", 5) == 0)
+			Params.test = atoi(&argv[i][5]);
+		
 	}
 
 	if (argc - i < 3)
@@ -106,44 +112,176 @@ bool parse_parameters(int argc, char *argv[]) {
 }
 
 void test_fp(KModel* kmodel, string input_file) {
-	cout << "testing......." << endl;
+	cout << "==============test_fp==============" << endl;
 	string kmer;
 	float counter;
-	int occ, t_bin, bin, appearance; //appearance:how many time this kmer appearance in these bit array
-	double false_positive = 0, retrieval_error = 0, left_map = 0, last_f = 0;
+	int occ, t_bin, bin, idx = 0; //appearance:how many time this kmer appearance in these bit array
+	double kmodel_false_positive = 0;
 	CKMCFile kmer_data_base;
 	kmer_data_base.OpenForListing(input_file);
 	uint32 _kmer_length = kmer_data_base.KmerLength();
 	CKmerAPI kmer_object(_kmer_length);
-
+	uint64 kc_kmodel = kmodel->get_kmodel_kmer_count()-kmodel->get_left_kmer_count();
+	//cout << kmodel->get_kmodel_kmer_count() << "-----" << kmodel->get_left_kmer_count() << endl;
+	uint64_t kc_bf1 = kmodel->get_once_kmer_count();
+	auto start = chrono::high_resolution_clock::now();
 	while (kmer_data_base.ReadNextKmer(kmer_object, counter)) {
-		kmer = kmer_object.to_string().c_str();
-		if (kmodel->get_kmer_from_map(kmer) > -1) { //can be found in the map
-			left_map++;
+		kmer_buff[idx].kmer = kmer_object.to_string().c_str();
+		kmer_buff[idx++].occ = counter;
+		if (idx >= BLOACK_SIZE) {
+			#pragma omp parallel for num_threads(THREAD_NUM) reduction(+:kmodel_false_positive) 
+			for (int i = 0; i < idx; ++i) {
+				if (kmodel->get_kmer_from_map(kmer_buff[i].kmer) > -1) { //can be found in the map
+					continue;
+				}
+				//	continue;
+				if (kmodel->kmer_to_bin(kmer_buff[i].kmer) != kmodel->get_occu_bin()->occ_to_bin(kmer_buff[i].occ)) //don't consider the result from map
+					++kmodel_false_positive;
+			}
+			idx = 0;
+		}
+	}
+	//handle the left kmers
+	#pragma omp parallel for num_threads(THREAD_NUM) reduction(+:kmodel_false_positive) 
+	for (int i = 0; i < idx; ++i) {
+		if (kmodel->get_kmer_from_map(kmer_buff[i].kmer) > -1) { //can be found in the map
 			continue;
 		}
-		if (counter >= C_MAX) {//skip the cs in the kmc2
-			last_f++;
-			continue;
-		}
-		occ = counter;
-		bin = kmodel->get_occu_bin()->occ_to_bin(occ); //occ->bin
-		t_bin = kmodel->kmer_to_bin(kmer, appearance);
-		if (appearance > 1) {
-			false_positive++;
-		}
-		if (t_bin != bin) //don't consider the result from map
-			retrieval_error++;
+		if (kmodel->kmer_to_bin(kmer_buff[i].kmer) != kmodel->get_occu_bin()->occ_to_bin(kmer_buff[i].occ)) //don't consider the result from map
+			++kmodel_false_positive;
 	}
 	kmer_data_base.Close();
+	chrono::duration<double> dur = chrono::high_resolution_clock::now() - start;
+	printf("test time:%.4f min\n", dur.count() / 60);
+	cout << "FP_count_in_kmodel: " << kmodel_false_positive << endl;
+	printf("kmodel_false_positive:%.3e\n\n",kmodel_false_positive / kc_kmodel);
+}
 
-	uint64_t bit_kmer_count = kmodel->get_kmer_count() - left_map - last_f;
-	printf("false_positive:%0.6f, retrieval_error:%0.6f\n", false_positive / bit_kmer_count, retrieval_error / bit_kmer_count);
+void test_fp(KModelOne* kmodel, string input_file) {
+	cout << "==============test_fp==============" << endl;
+	string kmer;
+	float counter;
+	int occ, t_bin, bin, idx = 0; //appearance:how many time this kmer appearance in these bit array
+	double kmodel_false_positive = 0, bf1_false_positive = 0;
+	CKMCFile kmer_data_base;
+	kmer_data_base.OpenForListing(input_file);
+	uint32 _kmer_length = kmer_data_base.KmerLength();
+	CKmerAPI kmer_object(_kmer_length);
+	uint64 kc_kmodel = kmodel->get_kmodel_kmer_count() - kmodel->get_left_kmer_count();
+	uint64_t kc_bf1 = kmodel->get_once_kmer_count();
+	auto start = chrono::high_resolution_clock::now();
+	while (kmer_data_base.ReadNextKmer(kmer_object, counter)) {
+		kmer_buff[idx].kmer = kmer_object.to_string().c_str();
+		kmer_buff[idx++].occ = counter;
+		if (idx >= BLOACK_SIZE) {
+			#pragma omp parallel for num_threads(THREAD_NUM) reduction(+:bf1_false_positive)  reduction(+:kmodel_false_positive) 
+			for (int i = 0; i < idx; ++i) {
+				if (kmodel->get_kmer_from_map(kmer_buff[i].kmer) > -1) { //can be found in the map
+					continue;
+				}
+				if (kmer_buff[i].occ != 1 && kmodel->check_bloomfilter01(kmer_buff[i].kmer))
+					++bf1_false_positive;
+				if (kmer_buff[i].occ == 1)
+					continue;
+				if (kmodel->kmer_to_bin(kmer_buff[i].kmer) != kmodel->get_occu_bin()->occ_to_bin(kmer_buff[i].occ)) //don't consider the result from map
+					++kmodel_false_positive;
+			}
+			idx = 0;
+		}
+	}
+	//handle the left kmers
+	#pragma omp parallel for num_threads(THREAD_NUM) reduction(+:bf1_false_positive)  reduction(+:kmodel_false_positive) 
+	for (int i = 0; i < idx; ++i) {
+		if (kmodel->get_kmer_from_map(kmer_buff[i].kmer) > -1) { //can be found in the map
+			continue;
+		}
+		if (kmer_buff[i].occ != 1 && kmodel->check_bloomfilter01(kmer_buff[i].kmer))
+			++bf1_false_positive;
+		if (kmer_buff[i].occ == 1)
+			continue;
+		if (kmodel->kmer_to_bin(kmer_buff[i].kmer) != kmodel->get_occu_bin()->occ_to_bin(kmer_buff[i].occ)) //don't consider the result from map
+			++kmodel_false_positive;
+	}
+
+	kmer_data_base.Close();
+	chrono::duration<double> dur = chrono::high_resolution_clock::now() - start;
+	printf("test time:%.4f min\n", dur.count() / 60);
+	cout << "FP_count_in_kmodel: " << kmodel_false_positive << endl;
+	cout << "FP_count_in_bloomfilter01:" << bf1_false_positive << endl;
+	printf("kmodel_false_positive:%.3e\nbloomfilter01_false_positive:%.3e\n\n",
+		kmodel_false_positive / kc_kmodel, bf1_false_positive / kc_bf1);
 }
 
 
-int _tmain(int argc, char* argv[]) {
+//input_file is a testing file
+void test_present_absent(string input_file, string save_dir) {
+	cout << "=====test nAbsent nPresent=====" << endl;
+	cout << input_file << endl;
+	//present include both kmer and frequence,while absent does not
+	ifstream fin(input_file);
+	vector<string> kmer_v;
+	string kmer, frquence;
+	//load the testing file into vector
+	if ((int)input_file.find("present") > -1) 
+	{
+		while (fin>> kmer >> frquence){
+			kmer_v.push_back(kmer);
+		}
+	}
+	else 
+	{
+		while (fin >> kmer) {
+			kmer_v.push_back(kmer);
+		}
+	}
 
+	auto start = chrono::high_resolution_clock::now();
+	KModel* kmodel = Params.ci > 1 ? new KModel() : new KModelOne();
+	kmodel->load_model(save_dir);
+	chrono::duration<double> dur = chrono::high_resolution_clock::now() - start;
+	cout << "openning time: " << dur.count() << endl;
+	
+	start = chrono::high_resolution_clock::now();
+	uint64 nPresent = 0, nAbsent = 0;
+	vector<int> result_v = kmodel->kmer_to_occ(kmer_v);
+	for (auto occ : result_v) {
+		if (occ)
+			++nPresent;
+		else
+			++nAbsent;
+	}
+	dur = chrono::high_resolution_clock::now() - start;
+	cout << "query time: " << dur.count() << endl;
+	cout << "#nAbsent " << nAbsent << endl;
+	cout << "#nPresent " << nPresent << endl << endl;
+
+}
+
+void test_open(string input_file,string absent_path) {
+	CKMCFile kmer_data_base;
+	kmer_data_base.OpenForListing(input_file);
+	uint32 _kmer_length = kmer_data_base.KmerLength();
+	CKmerAPI kmer_object(_kmer_length);
+	float counter;
+	while (kmer_data_base.ReadNextKmer(kmer_object, counter)) {
+		cout << counter << endl;
+	}
+}
+
+void test_load(string input_file,string save_dir = "save_model") {
+	KModel* kmodel = Params.ci > 1 ? new KModel() : new KModelOne();
+	cout << "====test_load=====" << endl;
+	auto start = chrono::high_resolution_clock::now();
+	kmodel->load_model(save_dir);
+	chrono::duration<double> dur = chrono::high_resolution_clock::now() - start;
+	cout << "opening time: " << dur.count() <<"\n\n";
+	if (Params.ci > 1)
+		test_fp(kmodel, input_file);
+	else
+		test_fp((KModelOne*)kmodel, input_file);
+}
+
+int run(int argc, char* argv[]) {
 	bool flag = parse_parameters(argc, argv);
 	if (!flag) {
 		read_me();
@@ -155,13 +293,38 @@ int _tmain(int argc, char* argv[]) {
 	cout << cmd << endl;
 	system(cmd);
 	cout << endl;
-	C_MAX = Params.cs;
+
+	C_MAX = Params.cs + 1;
+	THREAD_NUM = Params.t;
+	cout << Params.output_file_name << endl;
+
 	OccuBin* occu_bin = new OccuBin(Params.num_hash);
-	occu_bin->init_occ_count(Params.output_file_name);
-	KModel* kmodel = new KModel(occu_bin, Params.num_bit);
-	kmodel->show_header();
-	kmodel->init_KModel(Params.output_file_name);
-	kmodel->show_header2();
-	test_fp(kmodel, Params.output_file_name);
+	KModel* kmodel = NULL;
+	if (Params.ci > 1) {
+		kmodel = new KModel(occu_bin, Params.num_bit);
+		kmodel->init_KModel(Params.output_file_name);
+		kmodel->show_model_info();
+		if (Params.test)test_fp(kmodel, Params.output_file_name);
+	}
+	else {
+		kmodel = new KModelOne(occu_bin, Params.num_bit);
+		kmodel->init_KModel(Params.output_file_name);
+		kmodel->show_model_info();
+		if (Params.test)test_fp((KModelOne*)kmodel, Params.output_file_name);
+	}
+	//save model to the disk
+	string save_dir = Params.working_directory + "/" + Tools::get_file_name(Params.output_file_name);
+	system(("mkdir " + save_dir).c_str()); //new a dirctory - -;
+	kmodel->save_model(save_dir);
+	cout << "save model successfully.!" << endl;
+	if (Params.test) {
+		test_fp(kmodel, Params.output_file_name);
+	}
+	//test_load(Params.output_file_name, save_dir);
+	//test_present_absent(Params.input_file_name, Params.output_file_name);
+}
+
+int _tmain(int argc, char* argv[]) {
+	run(argc, argv);
 	return 0;
 }
