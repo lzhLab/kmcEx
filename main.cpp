@@ -153,8 +153,8 @@ void test_fp(KModel* kmodel, string input_file) {
 	kmer_data_base.Close();
 	chrono::duration<double> dur = chrono::high_resolution_clock::now() - start;
 	printf("test time:%.4f min\n", dur.count() / 60);
-	cout << "FP_count_in_kmodel: " << kmodel_false_positive << endl;
-	printf("kmodel_false_positive:%.3e\n\n",kmodel_false_positive / kc_kmodel);
+	//cout << "FP_count_in_kmodel: " << kmodel_false_positive << endl;
+	//printf("kmodel_false_positive:%.3e\n\n",kmodel_false_positive / kc_kmodel);
 }
 
 void test_fp(KModelOne* kmodel, string input_file) {
@@ -206,10 +206,10 @@ void test_fp(KModelOne* kmodel, string input_file) {
 	kmer_data_base.Close();
 	chrono::duration<double> dur = chrono::high_resolution_clock::now() - start;
 	printf("test time:%.4f min\n", dur.count() / 60);
-	cout << "FP_count_in_kmodel: " << kmodel_false_positive << endl;
-	cout << "FP_count_in_bloomfilter01:" << bf1_false_positive << endl;
-	printf("kmodel_false_positive:%.3e\nbloomfilter01_false_positive:%.3e\n\n",
-		kmodel_false_positive / kc_kmodel, bf1_false_positive / kc_bf1);
+	//cout << "FP_count_in_kmodel: " << kmodel_false_positive << endl;
+	//cout << "FP_count_in_bloomfilter01:" << bf1_false_positive << endl;
+	//printf("kmodel_false_positive:%.3e\nbloomfilter01_false_positive:%.3e\n\n",
+	//	kmodel_false_positive / kc_kmodel, bf1_false_positive / kc_bf1);
 }
 
 
