@@ -63,29 +63,29 @@ the model saved  in  /tmp/RS_k31_f2-1000.res  (working_directory)，and there ar
 create a kmodel and save it to the disk，since the number of kmer(k=1) is very huge，we distinguish this two situation that k>=2 and k>=1 
 1) for k>=2
 ```c
-	//some parameters
-	int n_hash = 7, n_bit = 4;
-	//kmc_database is the kmc database file,such as 'RS_k31_f2-1000.res'
-	string kmc_database = "/tmp/RS_k31_f2-1000.res";
-	OccuBin* occu_bin = new OccuBin(n_hash);
-	KModel* kmodel = new KModel(occu_bin, n_bit);
-	//initialize the model
-	kmodel->init_KModel(kmc_database);
-	//save model to an existing directory "model_dir",
-	kmodel->save_model("/tmp/rs_f2-1000_model");
+//some parameters
+int n_hash = 7, n_bit = 4;
+//kmc_database is the kmc database file,such as 'RS_k31_f2-1000.res'
+string kmc_database = "/tmp/RS_k31_f2-1000.res";
+OccuBin* occu_bin = new OccuBin(n_hash);
+KModel* kmodel = new KModel(occu_bin, n_bit);
+//initialize the model
+kmodel->init_KModel(kmc_database);
+//save model to an existing directory "model_dir",
+kmodel->save_model("/tmp/rs_f2-1000_model");
 ```
 2) for k>=1
 ```c
-	int n_hash = 7, n_bit = 4;
-	//kmc_database is the kmc database file,such as 'RS_k31_f2-1000.res'
-	string kmc_database = "/tmp/RS_k31_f1-1000.res";
-	OccuBin* occu_bin = new OccuBin(n_hash);
-	//KModelOne is a subclass of Kmodel
-	KModel* kmodel = new KModelOne(occu_bin, n_bit);
-	//initialize the model
-	kmodel->init_KModel(kmc_database);
-	//save model to an existing directory "model_dir",
-	kmodel->save_model("/tmp/rs_f1-1000_model");
+int n_hash = 7, n_bit = 4;
+//kmc_database is the kmc database file,such as 'RS_k31_f2-1000.res'
+string kmc_database = "/tmp/RS_k31_f1-1000.res";
+OccuBin* occu_bin = new OccuBin(n_hash);
+//KModelOne is a subclass of Kmodel
+KModel* kmodel = new KModelOne(occu_bin, n_bit);
+//initialize the model
+kmodel->init_KModel(kmc_database);
+//save model to an existing directory "model_dir",
+kmodel->save_model("/tmp/rs_f1-1000_model");
 ```
 
 3) load a model from  the disk, and get the occurrence of some kmer
