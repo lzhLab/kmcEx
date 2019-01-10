@@ -398,11 +398,12 @@ int run(int argc, char* argv[]) {
 	system(("mkdir -p " + save_dir).c_str()); //new a dirctory - -;
 	kmodel->save_model(save_dir);
 	cout << "save model successfully.!" << endl;
-	Params.ci > 1 ? test_fp(kmodel, Params.output_file_name) : test_fp((KModelOne*)kmodel, Params.output_file_name);
+	//Params.ci > 1 ? test_fp(kmodel, Params.output_file_name) : test_fp((KModelOne*)kmodel, Params.output_file_name);
 }
 
 
 int _tmain(int argc, char* argv[]) {
 	run(argc, argv);
+	//test_load(argv[1], argv[2]);
 	return 0;
 }
