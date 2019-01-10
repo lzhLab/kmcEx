@@ -37,25 +37,24 @@ how to use  the executable kmcEx to test
 kn=31
 out_dir=/tmp 
 ci=1
-cs=1000
-cx=1000
-./kmcEx -ci${ci} -cs${cs} -k${kn} -t8 -m24 @sa.lst $out_dir/SA_k${kn}_f${ci}-${cx}.res /tmp
-./kmcEx -ci${ci} -cs${cs} -k${kn} -t8 -m24 @rs.lst $out_dir/RS_k${kn}_f${ci}-${cx}.res /tmp
-./kmcEx -ci${ci} -cs${cs} -k${kn} -t8 -m24 @hc14.lst $out_dir/HC14_k${kn}_f${ci}-${cx}.res /tmp
-./kmcEx -ci${ci} -cs${cs} -k${kn} -t8 -m24 @bi.lst $out_dir/BI_k${kn}_f${ci}-${cx}.res /tmp
-./kmcEx -ci${ci} -cs${cs} -k${kn} -t8 -m24 @na12878_1.lst $out_dir/NA12878_k${kn}_f${ci}-${cx}.res /tmp
+cs=1023
+./kmcEx -ci${ci} -cs${cs} -k${kn} -t8 -m24 @sa.lst $out_dir/SA_k${kn}_f${ci}-${cs}.res /tmp
+./kmcEx -ci${ci} -cs${cs} -k${kn} -t8 -m24 @rs.lst $out_dir/RS_k${kn}_f${ci}-${cs}.res /tmp
+./kmcEx -ci${ci} -cs${cs} -k${kn} -t8 -m24 @hc14.lst $out_dir/HC14_k${kn}_f${ci}-${cs}.res /tmp
+./kmcEx -ci${ci} -cs${cs} -k${kn} -t8 -m24 @bi.lst $out_dir/BI_k${kn}_f${ci}-${cs}.res /tmp
+./kmcEx -ci${ci} -cs${cs} -k${kn} -t8 -m24 @na12878_1.lst $out_dir/NA12878_k${kn}_f${ci}-${cs}.res /tmp
 ```
-the file **sa.lst**  is the location of fastq, one line one location, like this:
+the file **rs.lst**  is the location of fastq, one line one location, like this:
 ```
 /share/share/data/NGS/GAGE/RS/rs_frag_1.fastq
 /share/share/data/NGS/GAGE/RS/rs_frag_2.fastq
 ```
 after running the command, in the $out_dir，you will get kmc_database file:
 ```
-RS_k31_f2-1000.res.kmc_pre
-RS_k31_f2-1000.res.kmc_suf
+RS_k31_f1-1023.res.kmc_pre
+RS_k31_f1-1023.res.kmc_suf
 ```
-the model saved  in  /tmp/RS_k31_f2-1000.res  (working_directory)，and there are some files like this:
+the model saved  in  /tmp/RS_k31_f1-1023.res  (working_directory)，and there are some files like this:
 
 ```
 bit1.bin  bit2.bin  bloom2.bin  bloom.bin  hash.bin  last_map.bin  occ.bin  param.conf
@@ -63,7 +62,7 @@ bit1.bin  bit2.bin  bloom2.bin  bloom.bin  hash.bin  last_map.bin  occ.bin  para
 
 
 # API usage
-create a kmodel and save it to the disk，since the number of kmer(counter=1) is very huge，we distinguish this two situations that counter>=2 and counter>=1. you can pass the parameter 'ci' to get different model(if ci=1,then you get the model including counter>=1; else the counter=1 is excluded)
+create a kmodel and save it to the disk，since the number of kmer(counter=1) is very huge，we distinguish this two situations that counter>1 and counter>=1. you can pass the parameter 'ci' to get different model(if ci=1,then you get the model including counter>=1; else the counter=1 is excluded)
 1) create a model, and save it to the disk
 ```c
 #include "kmodel.hpp"
