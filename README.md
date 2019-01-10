@@ -93,4 +93,5 @@ vector<string> kmer_v=...;
 kmodel->kmer_to_occ(kmer_v);
 ```
 
-ref:https://github.com/refresh-bio/KMC
+# reference
+kmc:https://github.com/refresh-bio/KMC
