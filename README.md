@@ -94,4 +94,4 @@ kmodel->kmer_to_occ(kmer_v);
 ```
 
 # reference
-kmc:https://github.com/refresh-bio/KMC
+kmc: https://github.com/refresh-bio/KMC
