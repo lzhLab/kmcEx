@@ -4,8 +4,8 @@
   
   Authors: Sebastian Deorowicz, Agnieszka Debudaj-Grabysz, Marek Kokot
   
-  Version: 2.0
-  Date   : 2014-07-04
+  Version: 3.1.0
+  Date   : 2018-05-10
 */
 
 #ifndef _MMER_H
@@ -27,6 +27,9 @@ class CMmer
 	static uint32 norm6[1 << 12];
 	static uint32 norm7[1 << 14];	
 	static uint32 norm8[1 << 16];
+	static uint32 norm9[1 << 18];
+	static uint32 norm10[1 << 20];
+	static uint32 norm11[1 << 22];
 
 	static bool is_allowed(uint32 mmer, uint32 len)
 	{
@@ -89,6 +92,9 @@ class CMmer
 			init_norm(norm6, 6);
 			init_norm(norm7, 7);
 			init_norm(norm8, 8);
+			init_norm(norm9, 9);
+			init_norm(norm10, 10);
+			init_norm(norm11, 11);
 		}
 
 	}static _init;
@@ -101,7 +107,7 @@ public:
 	inline void clear();
 	inline bool operator<=(const CMmer& x);
 	inline void set(const CMmer& x);
-	inline void insert(char* seq);
+	inline void insert(const char* seq);
 	
 };
 
@@ -155,7 +161,7 @@ inline void CMmer::set(const CMmer& x)
 }
 
 //--------------------------------------------------------------------------
-inline void CMmer::insert(char* seq)
+inline void CMmer::insert(const char* seq)
 {
 	switch (len)
 	{
@@ -170,6 +176,15 @@ inline void CMmer::insert(char* seq)
 		break;
 	case 8:
 		str = (seq[0] << 14) + (seq[1] << 12) + (seq[2] << 10) + (seq[3] << 8) + (seq[4] << 6) + (seq[5] << 4) + (seq[6] << 2) + (seq[7]);
+		break;
+	case 9:
+		str = (seq[0] << 16) + (seq[1] << 14) + (seq[2] << 12) + (seq[3] << 10) + (seq[4] << 8) + (seq[5] << 6) + (seq[6] << 4) + (seq[7] << 2) + (seq[8]);
+		break;
+	case 10:
+		str = (seq[0] << 18) + (seq[1] << 16) + (seq[2] << 14) + (seq[3] << 12) + (seq[4] << 10) + (seq[5] << 8) + (seq[6] << 6) + (seq[7] << 4) + (seq[8] << 2) + (seq[9]);
+		break;
+	case 11:
+		str = (seq[0] << 20) + (seq[1] << 18) + (seq[2] << 16) + (seq[3] << 14) + (seq[4] << 12) + (seq[5] << 10) + (seq[6] << 8) + (seq[7] << 6) + (seq[8] << 4) + (seq[9] << 2) + (seq[10]);
 		break;
 	default:
 		break;

@@ -4,16 +4,16 @@
 
   Authors: Sebastian Deorowicz and Agnieszka Debudaj-Grabysz
 
-  Version: 2.0
-  Date   : 2014-07-04
+  Version: 3.1.0
+  Date   : 2018-05-10
 */
 
 
 #ifndef _KMER_DEFS_H
 #define _KMER_DEFS_H
 
-#define KMC_VER		"2.0"
-#define KMC_DATE	"2014-07-04"
+#define KMC_VER		"3.1.0"
+#define KMC_DATE	"2018-05-10"
 
 #define MIN(x,y)	((x) < (y) ? (x) : (y))
 
@@ -21,7 +21,7 @@
 	#include <stdint.h>
 	#include <stdio.h>
 	#include <stdlib.h>
-	#include <math.h>
+	#include <cmath>
 	#include <string.h>
 
 	#define _TCHAR	char
@@ -30,6 +30,13 @@
 	#define my_fopen    fopen
 	#define my_fseek    fseek
 	#define my_ftell    ftell
+
+
+	#include <stdio.h>
+	#include <ext/algorithm>
+	#include <iostream>
+	using namespace std;
+
 #else
 	#define my_fopen    fopen
 	#define my_fseek    _fseeki64

@@ -39,7 +39,6 @@ struct BitSaveData {
 	uint8_t *bit_array_2; //a tag bit array
 };
 
-
 class KModel
 {
 public:
@@ -68,7 +67,7 @@ public:
 		init_bit_aray();
 		show_header_info();	
 		uint64_t idx = 0;
-		auto start = chrono::high_resolution_clock::now();//////////////
+		auto start = chrono::high_resolution_clock::now();
 		while (kmer_data_base.ReadNextKmer(kmer_object, counter)) {
 			occ32 = counter;
 			++occ_count[occ32];
@@ -151,8 +150,6 @@ public:
 		vector<int> v_bin = find_bitarray(kmer);
 		int len_v_bin = v_bin.size();
 		if (len_v_bin == 0) {
-			//cout << len_v_bin << " : " << kmer << endl;
-			//cout << "v_bin.size == 0" << endl;
 			return 0;
 		}
 		if (len_v_bin == 1) {
@@ -197,11 +194,11 @@ public:
 		fout << "total_kmer_count  " << total_kmer_count << endl;
 		fout << "once_kmer_count  " << once_kmer_count << endl;
 		fout << "last_map_size  " << last_map.size() << endl;
-		fout << "C_MAX   " << C_MAX << endl;
+		fout << "C_MAX   " << max_counter << endl;
 		fout.close();
 		//2. save OccuBin
 		FILE *fp_occ_meta = fopen((save_dir + "/occ.bin").c_str(), "wb");
-		fwrite(occu_bin->get_occ_bin_meta(), sizeof(OccuBinMeta), C_MAX, fp_occ_meta);
+		fwrite(occu_bin->get_occ_bin_meta(), sizeof(OccuBinMeta), max_counter, fp_occ_meta);
 		fclose(fp_occ_meta);
 		//3. save KModel
 		FILE *fp_hash = fopen((save_dir + "/hash.bin").c_str(), "wb");
@@ -227,11 +224,6 @@ public:
 			fwrite(&iter->second, sizeof(uint32_t), 1, fp_map_w);
 		}
 		fclose(fp_map_w);
-
-		//5.save bloomfilter for one-mer
-		//FILE *fp_bloom = fopen((save_dir + "/bloom.bin").c_str(), "wb");
-		//fwrite(bit_bf1, sizeof(uint8_t),byte_bf1, fp_bloom);
-		//fclose(fp_bloom);
 	}
 
 	//load model
@@ -248,14 +240,14 @@ public:
 		fin >> t_str >> total_kmer_count;
 		fin >> t_str >> once_kmer_count;
 		fin >> t_str >> left_kmer_count;
-		fin >> t_str >> C_MAX;
+		fin >> t_str >> max_counter;
 		set_bit_array_size();
 		fin.close();
 
 		//2. load OccuBin
 		occu_bin = new OccuBin(n_hash);
 		FILE *fp_occ_meta = fopen((save_dir + "/occ.bin").c_str(), "rb");
-		fread(occu_bin->get_occ_bin_meta(), sizeof(OccuBinMeta), C_MAX, fp_occ_meta);
+		fread(occu_bin->get_occ_bin_meta(), sizeof(OccuBinMeta), max_counter, fp_occ_meta);
 		fclose(fp_occ_meta);
 		//3. load KModel
 		uint64_t t_byte_array_size = byte_array_size;
@@ -292,19 +284,11 @@ public:
 			last_map.insert(make_pair(k, v));
 		}
 		fclose(fp_map_r);
-
-		////5.load bloomfilter for one-mer
-		//FILE *fp_bloom = fopen((save_dir + "/bloom.bin").c_str(), "rb");
-		//bit_bf1 = new uint8_t[this->byte_bf1];
-		//fread(bit_bf1, sizeof(uint8_t), byte_bf1, fp_bloom);
-		//fclose(fp_bloom);
 	}
 
 	virtual void show_header_info() {
 		cout << "[kmodel_number_hash]:" << n_hash << endl;
 		cout << "total_kmer_count:" << total_kmer_count << endl;
-		//cout << "kmercount sent into bloomfilter01:" << once_kmer_count << endl;
-		//cout << "kmercount sent into kmodel:" << kmodel_kmer_count << endl;
 		cout << "kmodel_number_bit_array:" << n_bits << endl;
 		cout << "kmodel_byte_array_size:" << byte_array_size << endl;
 	}
@@ -321,7 +305,6 @@ public:
 			left -= c_left[i];
 		}
 		cout << "the left kmer is saved to map:" << left_kmer_count << endl;
-		//cout << "memory used in bloomfilter01:" << Tools::filesize_format(byte_bf1) << endl;
 		cout << "memory used in kmodel bit array:" << Tools::filesize_format(total_byte_array_size * 2) << endl;
 		cout << "total memory used:" << Tools::filesize_format(total_byte_array_size * 2) << endl;
 
@@ -388,7 +371,7 @@ protected:
 
 	virtual void set_bit_array_size() {
 		this->kmodel_kmer_count = total_kmer_count - once_kmer_count;
-		//to minimize the false positive -> bit_array_length=kmer_count*n_hash/ln2
+		//to minimize the false positive -> bit_array_length=kmer_count*n_hash/ln2/8
 		this->byte_array_size = kmodel_kmer_count / 5.52 * n_hash;
 		this->bit_array_length = this->byte_array_size << 3;
 	}
@@ -436,9 +419,8 @@ protected:
 			bits_data[i] = bit_data;
 			t_byte_array_size = t_byte_array_size >> 1; //byte_array_size reduce
 		}
-		occ_count = new uint64_t[C_MAX];
+		occ_count = new uint64_t[max_counter];
 	}
-
 
 	virtual void insert_pre(string kmer, int occ) {
 		#pragma omp critical
@@ -448,7 +430,7 @@ protected:
 			if (index > -1) { // can be inserted
 				c_left[index]++;//couting how many kmer save in the bit_array
 			}
-			else { // store kmer_occ using map
+			else { // store kmer_occ with map
 				uint64_t key = Tools::kmers2uint64(kmer);
 				last_map.insert(make_pair(key, (uint32_t)occ));
 				left_kmer_count++;
@@ -500,12 +482,12 @@ protected:
 
 	double calc_distance_error() {
 		double sum_dis = 0, sum_kmer_count = 0;
-		for (int i = 2; i < C_MAX; i++) {
+		for (int i = 2; i < max_counter; i++) {
 			sum_kmer_count += i*occ_count[i];
 		}
 		int start_bin = this->occu_bin->get_bin_end_index1();
 		auto occ_bin_meta = this->occu_bin->get_occ_bin_meta();
-		for (int i = start_bin; i < C_MAX; i++) {
+		for (int i = start_bin; i < max_counter; i++) {
 			sum_dis += abs(occ_bin_meta[i].occ_mean - i)*occ_count[i];
 		}
 		double dis_error = sum_dis / sum_kmer_count;
@@ -567,34 +549,27 @@ class KModelOne: public KModel
 {
 public:
 	KModelOne() {}
-	KModelOne(OccuBin* occu_bin, int n_bits): KModel(occu_bin,n_bits)
-	{	
+	KModelOne(OccuBin* occu_bin, int n_bits) : KModel(occu_bin, n_bits)
+	{
+		this->bf_n_hash = occu_bin->get_nhash() - 1;
+		this->bf_back_n_hash = occu_bin->get_nhash() - 2;
 	}
 
 	int kmer_to_occ(string kmer) {
 		int occ = get_kmer_from_map(kmer);
 		if (occ != -1)
 			return occ;
-		if (check_bloomfilter(kmer, bit_bf1, length_bf1))
+		if (check_bloomfilter01(kmer)) 
 			return 1;
 		int bin = kmer_to_bin(kmer);
 		occ = occu_bin->bin_to_mean(bin);
 		return occ;
 	}
 
-	bool check_bloomfilter(std::string kmer, uint8_t* bit_bf, uint64_t bf_length) {
-		uint64_t pos;
-		for (int i = 0; i<bf_n_hash; i++) {
-			pos = Tools::murmur_hash64(kmer.c_str(), kmer.size(), HashSeeds[i]) % bf_length;
-			if (check_bit(bit_bf, pos) == 0)
-				return false;
-		}
-		return true;
-	}
 
 	void insert_pre(string kmer, int occ) {
 		if (occ == 1)
-			insert_to_bloomfilter(kmer, this->bit_bf1, this->length_bf1);
+			insert_to_bloomfilter(kmer);
 		else
 		{
 			#pragma omp critical
@@ -620,6 +595,10 @@ public:
 		FILE *fp_bloom = fopen((save_dir + "/bloom.bin").c_str(), "wb");
 		fwrite(bit_bf1, sizeof(uint8_t),byte_bf1, fp_bloom);
 		fclose(fp_bloom);
+		//save bloomfilter for k-1_mer bloom
+		FILE *fp_bloom2 = fopen((save_dir + "/bloom2.bin").c_str(), "wb");
+		fwrite(bit_bf1_back, sizeof(uint8_t), byte_bf1_back, fp_bloom2);
+		fclose(fp_bloom2);
 	}
 
 	//load model
@@ -627,41 +606,87 @@ public:
 		KModel::load_model(save_dir);
 		//load bloomfilter for one-mer
 		FILE *fp_bloom = fopen((save_dir + "/bloom.bin").c_str(), "rb");
-		bit_bf1 = new uint8_t[this->byte_bf1];
+		bit_bf1 = new uint8_t[byte_bf1];
 		fread(bit_bf1, sizeof(uint8_t), byte_bf1, fp_bloom);
 		fclose(fp_bloom);
+		//load bloomfilter for k-1_mer bloom
+		FILE *fp_bloom2 = fopen((save_dir + "/bloom2.bin").c_str(), "rb");
+		bit_bf1_back = new uint8_t[byte_bf1_back];
+		fread(bit_bf1_back, sizeof(uint8_t), byte_bf1_back, fp_bloom2);
+		fclose(fp_bloom2);
 	}
 
 	bool check_bloomfilter01(std::string kmer) {
-		return check_bloomfilter(kmer, this->bit_bf1, this->length_bf1);
+		kmer = Tools::get_min_kmer(kmer);
+		return check_bloomfilter(kmer, this->bit_bf1, this->length_bf1, this->bf_n_hash) && check_back_bloomfilter(kmer);
 	}
 
 
 protected:
 	uint8_t *bit_bf1; //bloomfilter for one occurrence
+	uint8_t *bit_bf1_back;//bloomfilter for check k-1_mer
 	uint64_t byte_bf1,length_bf1;
-	int bf_n_hash = 7;
+	uint64_t byte_bf1_back, length_bf1_back;
+	int bf_n_hash=6; 
+	int bf_back_n_hash=5;
 
 	void init_bit_aray() {
 		KModel::init_bit_aray();
-		//init bloomfilter
+		//init bloomfilter 
 		bit_bf1 = new uint8_t[byte_bf1];
+		bit_bf1_back=new uint8_t[byte_bf1_back];
 		memset(bit_bf1, 0, sizeof(uint8_t)*byte_bf1);
+		memset(bit_bf1_back, 0, sizeof(uint8_t)*byte_bf1_back);
 	}
 
 	void set_bit_array_size() {
 		KModel::set_bit_array_size();
 		this->byte_bf1 = once_kmer_count / 5.52 * bf_n_hash;
+		this->byte_bf1_back = once_kmer_count / 8 * bf_back_n_hash;
+		this->length_bf1_back = this->byte_bf1_back << 3;
 		this->length_bf1 = this->byte_bf1 << 3;
 	}
 
-	void insert_to_bloomfilter(std::string kmer, uint8_t* &bit_bf, uint64_t bf_length) {
+
+	bool check_bloomfilter(std::string kmer, uint8_t* bit_bf, uint64_t bf_length, int n_hash) {
+		uint64_t pos;
+		for (int i = 0; i<n_hash; i++) {
+			pos = Tools::murmur_hash64(kmer.c_str(), kmer.size(), HashSeeds[i]) % bf_length;
+			if (check_bit(bit_bf, pos) == 0)
+				return false;
+		}
+		return true;
+	}
+
+	//To decrease false positive, check k-1_mer bloomfilter
+	bool check_back_bloomfilter(string kmer) {
+		int len = kmer.length();
+		for (int ix = 0; ix < 2; ix++) {
+			string sub_kmer = kmer.substr(ix, len - 1);
+			string min_kmer = Tools::get_min_kmer(sub_kmer);
+			bool b = check_bloomfilter(min_kmer, bit_bf1_back, length_bf1_back, bf_back_n_hash);
+			if (!b) return false;
+		}
+		return true;
+	}
+
+	void insert_to_bloomfilter(string kmer) {
 		uint64_t pos;
 		int len = kmer.size();
 		auto str_kmer = kmer.c_str();
 		for (int i = 0; i<bf_n_hash; i++) {
-			pos = Tools::murmur_hash64(str_kmer, len, HashSeeds[i]) % bf_length;
-			set_bit(bit_bf, pos);
+			pos = Tools::murmur_hash64(str_kmer, len, HashSeeds[i]) % length_bf1;
+			set_bit(bit_bf1, pos);
+		}
+		//insert k-1_mer into bit_bf1_back
+		for (int ix = 0; ix < 2; ix++){
+			string sub_kmer = kmer.substr(ix, len - 1);
+			string min_kmer = Tools::get_min_kmer(sub_kmer); //can't get c_str() from there ?
+			auto c_min_kmer=min_kmer.c_str();
+			for (int i = 0; i<bf_back_n_hash; i++) {
+				pos = Tools::murmur_hash64(c_min_kmer, len-1, HashSeeds[i]) % length_bf1_back;
+				set_bit(bit_bf1_back, pos);
+			}
 		}
 	}
 
@@ -680,7 +705,7 @@ protected:
 	}
 
 	void show_header_info() {
-		cout << "[kmodel_number_hash]:" << n_hash << endl;
+		cout << "kmodel_number_hash:" << n_hash << endl;
 		cout << "total_kmer_count:" << total_kmer_count << endl;
 		cout << "kmercount sent into bloomfilter01:" << once_kmer_count << endl;
 		cout << "kmercount sent into kmodel:" << kmodel_kmer_count << endl;
@@ -689,5 +714,9 @@ protected:
 	}
 };
 
+KModel* get_model(int ci,int num_hash,int num_bit) {
+	OccuBin* occu_bin = new OccuBin(num_hash);
+	return ci > 1 ? new KModel(occu_bin, num_bit) : new KModelOne(occu_bin, num_bit);
+}
 
 #endif

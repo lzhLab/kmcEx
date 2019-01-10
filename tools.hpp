@@ -69,7 +69,7 @@ public:
 		return x;
 	}
 
-	static uint64_t kmers2uint64(std::string kmer) {
+	static uint64_t kmers2uint64(string kmer) {
 		uint64_t v = 0;
 		for (int i = 0; kmer[i]; i++) {
 			v <<= 2;
@@ -84,19 +84,31 @@ public:
 		return v;
 	}
 
-	static uint64_t get_file_size(std::string file) {
-		std::ifstream in(file);
+	static uint64_t get_file_size(string file) {
+		ifstream in(file);
 		if (!in) {
 			puts("get_file_size()___can't open the file!");
 			exit(1);
 		}
-		in.seekg(0, std::ios::end);
+		in.seekg(0, ios::end);
 		uint64_t size = in.tellg();
 		in.close();
 		return size;
 	}
 
-	static std::string get_file_name(std::string path) {
+	static string uint64_to_string(uint64_t u_kmer, int len) {
+		string ACGT = "ACGT";
+		string kmer(len, 's');
+		int v = 0;
+		for (int i = len - 1; i >= 0; i--) {
+			v = u_kmer & 0x3;
+			u_kmer >>= 2;
+			kmer[i] = ACGT[v];
+		}
+		return kmer;
+	}
+
+	static string get_file_name(string path) {
 		int pos = path.find_last_of('/');
 		return path.substr(pos + 1);
 	}
@@ -109,9 +121,9 @@ public:
 		return sum;
 	}
 
-	static std::string filesize_format(uint64_t size) {
+	static string filesize_format(uint64_t size) {
 		int m = 1024 * 1024;
-		return std::to_string(size / m) + "MB";
+		return to_string(size / m) + "MB";
 	}
 
 	static int vector_min(vector<int> v) {
@@ -124,13 +136,43 @@ public:
 		return _min;
 	}
 
-	static std::string get_complementation(std::string kmer) {
-		string com = "";
-		std::map<char, char> c2c = { { 'A','T' },{ 'C','G' },{ 'T','A' },{ 'G','C' } };
-		for (int i = kmer.length() - 1; i >= 0; i--) {
-			com += c2c[kmer[i]];
+	static uint64_t get_complementation(uint64_t v, int len = 31) {
+		uint64_t nw_v = 0, last = 0;
+		for (int i = 0; i < len; i++) {
+			last = (~(v & 0x3))&(0x3);//get the last two bits 
+			nw_v <<= 2; //vacate two bits
+			nw_v |= last; //put it into the new value
+			v >>= 2; //remove the last two bits
 		}
-		return com;
+		return nw_v;
+	}
+
+	static uint64_t get_min(uint64_t v1, uint64_t v2) {
+		return v1 <= v2 ? v1 : v2;
+	}
+
+
+	static uint64_t get_min_com_kmer_uint(string kmer) {
+		int len = kmer.length();
+		uint64_t u_kmer = kmers2uint64(kmer);
+		uint64_t nw_u_kmer = get_complementation(u_kmer, len);
+		return get_min(u_kmer, nw_u_kmer);
+	}
+
+	static string get_complementation(string kmer) {
+		int len = kmer.length();
+		uint64_t u_kmer = kmers2uint64(kmer);
+		uint64_t nw_u_kmer = get_complementation(u_kmer, len);
+		return uint64_to_string(nw_u_kmer, len);
+	}
+
+	static string get_min_kmer(string kmer) {
+		int len = kmer.length();
+		uint64_t u_kmer = kmers2uint64(kmer);
+		uint64_t nw_u_kmer = get_complementation(u_kmer, len);
+		if (u_kmer <= nw_u_kmer)
+			return kmer;
+		return uint64_to_string(nw_u_kmer, len);
 	}
 private:
 };
