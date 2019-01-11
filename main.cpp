@@ -21,8 +21,8 @@ void read_me() {
 	cout << "----------------------------------------------------------------------" << endl;
 	cout << "           kmcEx: Kmer count Model tool" << endl;
 	cout << "----------------------------------------------------------------------" << endl;
-	cout << "VERSION: 1.02" << endl;
-	cout << "DATE   : JULY.20, 2018" << endl;
+	cout << "VERSION: 1.2" << endl;
+	cout << "DATE   : NOV.15, 2018" << endl;
 	cout << "----------------------------------------------------------------------" << endl << endl;
 	cout << "1. USAGE" << endl;
 	cout << "     kmcEx [options] <input_file_name> <output_file_name> <working_directory>" << endl;
