@@ -27,7 +27,7 @@ how to use  the executable kmcEx for testing
         -nb<value>         - number of bit array (default: 5)
 3. EXAMPLES
      kmcEx -k31 -nh7 -nb5  rs.fastq rs.res /tmp
-     kmcEx -k31 -nh7 -nb5  @rs.lst rs.res /tmp << endl
+     kmcEx -k31 -nh7 -nb5  @rs.lst rs.res /tmp
 ```
 
 # usage demo
