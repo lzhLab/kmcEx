@@ -4,10 +4,10 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include <unordered_map>
 #include "kmc_api/kmc_file.h"
 using namespace std;
 
-int max_counter; //	max_counter = Params.cs + 1;
 
 //OccuBinMeta
 //the bean struct needed by OccBin
@@ -15,8 +15,8 @@ int max_counter; //	max_counter = Params.cs + 1;
 //e.g OccuBinMeta ocm[10],  ocm[i].occ_bin -> i=occurrence; mean=ocm[i].occ_bin
 class OccuBinMeta {
 public:
-	int occ_mean = -1; //occ->mean, e.g.100,101,102 ->101
-	int occ_bin = -1; //occ->bin, e.g.101->65
+	uint32_t occ_mean = -1; //occ->mean, e.g.100,101,102 ->101
+	uint32_t occ_bin = -1; //occ->bin, e.g.101->65
 };
 
 
@@ -24,7 +24,8 @@ public:
 //[1/4, 1/2, 1/4]
 class OccuBin {
 public:
-	OccuBin(int n_hash = 7) {
+	OccuBin(int max_counter,int n_hash = 7) {
+		this->max_counter = max_counter;
 		this->n_hash = n_hash;
 		this->bin_end_index3 = 1 << n_hash;
 		this->bin_end_index1 = bin_end_index3 / 4;
@@ -56,7 +57,12 @@ public:
 			occ_bin_meta[i].occ_mean = (2 * bin2_start - bin3_capacity) / 2;
 			occ_bin_meta[i].occ_bin = bin_end_index3 - 1;
 		}
+		//bin2mean
+		for (int i = bin_end_index1; i<max_counter; i++) {
+			bin2mean.insert(make_pair(occ_bin_meta[i].occ_bin, occ_bin_meta[i].occ_mean));
+		}
 	}
+
 
 	int occ_to_bin(int occ) {
 		if (occ<bin_end_index1)
@@ -64,20 +70,25 @@ public:
 		return occ_bin_meta[occ].occ_bin;
 	}
 
-	int bin_to_mean(int occ_bin) {
+	uint32_t occ_to_bin(uint32_t occ) {
+		if (occ<bin_end_index1)
+			return occ;
+		return occ_bin_meta[occ].occ_bin;
+	}
+
+	uint32_t bin_to_mean(uint32_t occ_bin) {
 		if (occ_bin<bin_end_index1) 
 			return occ_bin;
-		for (int i = bin_end_index1; i<max_counter; i++) {
-			if (occ_bin_meta[i].occ_bin == occ_bin) {
-				return occ_bin_meta[i].occ_mean;
-			}
-		}
-		return 0;  /////////////////
+		return bin2mean[occ_bin];
 	}
 
 
 	int get_bin_end_index1() {
 		return this->bin_end_index1;
+	}
+
+	int get_max_counter() {
+		return this->max_counter;
 	}
 
 	int get_nhash() {
@@ -90,9 +101,11 @@ public:
 
 
 private:
+	int max_counter; //	max_counter = Params.cs + 1;
 	int n_hash;
 	int bin_end_index1; //2^(n_hash-2)
 	int bin_end_index2; //2^(n_hash-2)+2^(n_hash-1)
 	int bin_end_index3; //2^(n_hash)
+	unordered_map<uint32_t, uint32_t> bin2mean;
 	OccuBinMeta* occ_bin_meta;
 };
