@@ -94,7 +94,7 @@ bool parse_parameters(int argc, char *argv[]) {
 		cout << "output_file_name is needed..!";
 		return false;
 	}
-	if (Params.input_file_name.length() <= 0) {
+	if (Params.working_directory.length() <= 0) {
 		cout << "working_directory is needed..!";
 		return false;
 	}
