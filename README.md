@@ -67,11 +67,11 @@ create a kmodel and save it to the disk，since the number of kmers having count
 ```c
 #include "kmodel.hpp"
 //some arguments
-int n_hash = 7, n_bit = 4, ci=1;
+int n_hash = 7, n_bit = 4, ci=1, cs=1023;
 //kmc_database is the kmc database file,such as 'RS_k31_f1-1000.res'
 string kmc_database = "/tmp/RS_k31_f2-1000.res";
 //get a model with ci... 
-KModel* kmodel = get_model(ci, n_hash, n_bit);
+KModel* kmodel = get_model(ci, cs, n_hash, n_bit);
 //initialize the model
 kmodel->init_KModel(kmc_database);
 //save model to an existing directory "model_dir",
@@ -82,15 +82,14 @@ kmodel->save_model("/tmp/rs_f2-1000_model");
 ```c
 #include "kmodel.hpp"
 //some arguments
-int n_hash = 7, n_bit = 4, ci=1;
-KModel* kmodel = get_model(ci, n_hash, n_bit);
-kmodel->load_model(model_dir); //load the model from the disk
+string save_dir="/tmp/rs_f2-1000_model"
+KModel* kmodel = get_model(save_dir);
 //query one kmer 
 string kmer=...;
 int occ=kmodel->kmer_to_occ(kmer) 
 //query multiple kmer with multiple threads
 vector<string> kmer_v=...;
-kmodel->kmer_to_occ(kmer_v);
+vector<int> out=kmodel->kmer_to_occ(kmer_v);
 ```
 
 # reference
