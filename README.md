@@ -1,6 +1,6 @@
 ﻿
 # kmcEx
-K-mers along with their frequency have served as an elementary building block for error correction, repeat detection, multiple sequence alignment, genome assembly, etc., attracting intensive studies in k-mer counting. However, the output of k-mer counters itself is large; very often, it is too large to fit into main memory, leading to highly narrowed usability. We introduce a novel idea of encoding k- mers as well as their frequency, achieving good memory saving and retrieval efficiency. Specifically, we propose a Bloom Filter-like data structure to encode counted k-mers by coupled-bit arrays— one for k-mer representation and the other for frequency encoding. Experiments on five real data sets show that the average memory- saving ratio on all 31-mers is as high as 16.3 when using 7 hash functions. At the same time, the retrieval time complexity is well controlled (effectively constant), and the false-positive rate is decreased by two orders of magnitude.
+K-mers along with their frequency have served as an elementary building block for error correction, repeat detection, multiple sequence alignment, genome assembly, etc., attracting intensive studies in k-mer counting. However, the output of k-mer counters itself is large; very often, it is too large to fit into main memory, leading to highly narrowed usability. We introduce a novel idea of encoding k- mers as well as their frequency, achieving good memory saving and retrieval efficiency. Specifically, we propose a Bloom Filter-like data structure to encode counted k-mers by coupled-bit arrays— one for k-mer representation and the other for frequency encoding. Experiments on five real data sets show that the average memory- saving ratio on all 31-mers is as high as 13.81 as compared with raw input, with 7 hash functions. At the same time, the retrieval time complexity is well controlled (effectively constant), and the false-positive rate is decreased by two orders of magnitude.
 
 # installation 
 kmcEx is based on **C++11**，and the installation step is very simple, in the kmodel main directory run 'make'  command, then you can get the executable kmodel.
@@ -14,23 +14,23 @@ how to use  the executable kmcEx for testing
      kmcEx [options] <input_file_name> <output_file_name> <working_directory>
      kmcEx [options] <@input_file_names> <output_file_name> <working_directory>
 2. OPTIONS
-	1) REQUIRED
-		input_file_name - single file in FASTQ format (gziped or not)
-		@input_file_names - file name with list of input files in FASTQ format (gziped or not)
-		working_directory - save temporary files
-	2) OPTIONAL
-		-k<len> - k-mer length (default: 31)
-		-t<value> - total number of threads (default: 4)
-		-ci<value> - exclude k-mers occurring less than <value> times (default: 1)
-		-cs<value> - maximal value of a counter (default: 1023)
-		-nh<value> - number of hash (default: 7)
-		-nb<value> - number of bit array (default: 4)
+     1) REQUIRED
+        input_file_name    - single file in FASTQ format (gziped or not)
+        @input_file_names  - file name with list of input files in FASTQ format (gziped or not)
+        working_directory  - save temporary files
+     2) OPTIONAL
+        -k<len>            - k-mer length (default: 31) 
+        -t<value>          - total number of threads (default: 4)
+        -ci<value>         - exclude k-mers occurring less than <value> times (default: 1)
+        -cs<value>         - maximal value of a counter (default: 1023)
+        -nh<value>         - number of hash (default: 7)
+        -nb<value>         - number of bit array (default: 5)
 3. EXAMPLES
-	kmcEx -k27 -nh7 -nb4  rs.fastq rs.res /tmp
-	kmcEx -k27 -nh7 -nb4  @rs.lst rs.res /tmp
+     kmcEx -k31 -nh7 -nb5  rs.fastq rs.res /tmp
+     kmcEx -k31 -nh7 -nb5  @rs.lst rs.res /tmp << endl
 ```
 
-# use demo
+# usage demo
 
 ```
 #!/bin/bash
