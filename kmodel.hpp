@@ -6,7 +6,6 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include <unordered_map>
 #include <vector>
 #include <cstdlib>
 #include <stdint.h>
@@ -15,80 +14,78 @@
 #include "kmc_api/kmc_file.h"
 #include "occu_bin.hpp"
 #include "tools.hpp"
+#include "rest.hpp"
 #include <chrono>
 #include "omp.h"
 #include <atomic> 
-
 using namespace std;
 
+const string BASE_CHAR = "ACGT";
+const int BLOACK_SIZE = 1 << 19;
 
 struct KmerBuff {
 	string kmer;
 	uint32_t occ;
 };
 
-
-const int BLOACK_SIZE = 1 << 19;
-const int BK = 4096; 
-
-
-
+//model data struct
 struct BitSaveData {
-	uint64_t bit_array_length; 
-	uint32_t* hash_seed; 
-	uint8_t *bit_array_1; 
-	uint8_t *bit_array_2; 
+	uint64_t bit_array_length; //bit_array_length when used in hash phase
+	uint32_t* hash_seed; //the array to save hash seed
+	uint8_t *bit_array_1; //a bit array used to save kmer's occurrence
+	uint8_t *bit_array_2; //a tag bit array
 };
-
 
 class KModel
 {
 public:
+
 	KModel() {}
-	KModel(OccuBin* occu_bin, int n_bits) {
+
+	KModel(OccuBin* occu_bin, int n_bits, int ci) {
 		this->occu_bin = occu_bin;
-		this->n_hash = occu_bin->get_nhash();
 		this->n_bits = n_bits;
-		this->km_back_n_hash = this->n_hash - 2;
+		this->ci = ci;
+		cs = occu_bin->get_max_counter() - 1;
+		bf_num = ci == 1 ? 1 : 3;
+		n_hash = occu_bin->get_hash_number();
+		km_back_num_hash = n_hash - 2;
+		bf_num_hash = n_hash - 1;
+		bf_back_num_hash = n_hash - 2;
 	}
 
-	virtual void init_KModel(string file_kmer_data_base) {
+	void init(string db_file) {
+		//cout << "ci " << ci << endl;
+		string kmer;
 		uint32 counter;
 		CKMCFile kmer_data_base;
 		CKmerAPI kmer_object;
-		string kmer;
-		init_kmc_api(file_kmer_data_base, kmer_data_base, kmer_object);
-		init_bit_aray(kmer_data_base.KmerCount());
-		show_header_info();
-		init_buff(n_bits);
-		auto start = chrono::high_resolution_clock::now();
+		kmc_api(db_file, kmer_data_base, kmer_object);
+		km_kmercount = get_km_kmer_count(kmer_data_base, kmer_object);
+		init_km_bit(km_kmercount);
+		show_header_info(); //message show
+		auto start_build = chrono::high_resolution_clock::now();
 		while (kmer_data_base.ReadNextKmer(kmer_object, counter)) {
 			kmer = kmer_object.to_string();
-			push_to_array(kmer, counter);
+			if (counter < ci + bf_num)
+				push_to_bloomfilter(kmer, counter);
+			else
+				push_to_array(kmer, counter);
 		}
+		//handle the last
 		push_last_to_array(n_bits);
-		chrono::duration<double> dur = chrono::high_resolution_clock::now() - start;
-		cout << "   kmcEx model construction time:        " << dur.count() << endl;
-		kmer_data_base.Close();
+		push_last_to_bloomfilter();
+
+		//KRestData build
+		kld->build();
+		delete[] km_buff;
+		delete[] bf_buff;
+		delete km_buff_num;
+		chrono::duration<double> dur = chrono::high_resolution_clock::now() - start_build;
+		build_time_cost = dur.count();
 	}
 
-	void set_load_param(uint64_t once_kmer_count, uint64_t kmodel_kmer_count, int last_map_size) {
-		this->once_kmer_count = once_kmer_count;
-		this->kmodel_kmer_count = kmodel_kmer_count;
-		this->last_map_size = last_map_size;
-	}
 
-	virtual int kmer_to_occ(string kmer, uint32_t r_occ = 0) {
-		kmer = Tools::get_min_kmer(kmer);
-		int occ = get_kmer_from_map(kmer);
-		if (occ != -1) return occ;
-		if (!check_back_bloomfilter(kmer, km_back, length_km_back, km_back_n_hash)) {
-			return 0;
-		}
-		int bin = kmer_to_bin(kmer, false, r_occ);
-		occ = occu_bin->bin_to_mean(bin);
-		return occ;
-	}
 
 	vector<int> kmer_to_occ(vector<string> kmer_v, int t_num = 4) {
 		int n = kmer_v.size();
@@ -100,111 +97,53 @@ public:
 		return occ_v;
 	}
 
-	int get_kmer_from_map(string kmer) {
-		uint64_t key = Tools::kmers2uint64(kmer);
-		unordered_map<uint64_t, uint32_t>::iterator it = last_map.find(key);
-		if (it != last_map.end()) {
-			return it->second;
-		}
-		return -1;
-	}
-
-	virtual void save_model(string save_dir) {
-		ofstream fout(save_dir + "/param.conf");
-		fout << "number_hash " << n_hash << endl;
-		fout << "number_bit " << n_bits << endl;
-		fout << "once_kmer_count  " << once_kmer_count << endl;
-		fout << "kmodel_kmer_count  " << kmodel_kmer_count << endl;
-		fout << "last_map_size  " << last_map.size() << endl;
-		fout << "max_counter   " << occu_bin->get_max_counter() << endl;
-		fout.close();
-		FILE *fp_hash = fopen((save_dir + "/hash.bin").c_str(), "wb");
-		FILE *fp_bit1 = fopen((save_dir + "/bit1.bin").c_str(), "wb");
-		FILE *fp_bit2 = fopen((save_dir + "/bit2.bin").c_str(), "wb");
-		for (int i = 0; i < n_bits; i++) {
-			fwrite(bits_data[i].hash_seed, sizeof(uint32_t), n_hash, fp_hash);
-			fwrite(bits_data[i].bit_array_1, sizeof(uint8_t), bits_data[i].bit_array_length >> 3, fp_bit1);
-			fwrite(bits_data[i].bit_array_2, sizeof(uint8_t), bits_data[i].bit_array_length >> 3, fp_bit2);
-		}
-		fclose(fp_hash);
-		fclose(fp_bit1);
-		fclose(fp_bit2);
-
-		FILE *fp_km_back = fopen((save_dir + "/km_back.bin").c_str(), "wb");
-		fwrite(km_back, sizeof(uint8_t), byte_km_back, fp_km_back);
-		fclose(fp_km_back);
-
-		FILE *fp_map_w = fopen((save_dir + "/last_map.bin").c_str(), "wb");
-		unordered_map<uint64_t, uint32_t>::iterator iter;
-		uint64_t buff_kmer[BK];
-		uint32_t buff_occ[BK], ix = 0;
-		for (iter = last_map.begin(); iter != last_map.end(); iter++) {
-			buff_kmer[ix] = iter->first;
-			buff_occ[ix++] = iter->second;
-			if (ix >= BK) {
-				fwrite(buff_kmer, sizeof(uint64_t), ix, fp_map_w);
-				fwrite(buff_occ, sizeof(uint32_t), ix, fp_map_w);
-				ix = 0;
-			}
-		}
-		if (ix) {
-			fwrite(buff_kmer, sizeof(uint64_t), ix, fp_map_w);
-			fwrite(buff_occ, sizeof(uint32_t), ix, fp_map_w);
-		}
-		fclose(fp_map_w);
-	}
-
-	virtual void load_model(string save_dir) {
-		set_bit_array_size(kmodel_kmer_count);
-		uint64_t t_byte_array_size = byte_array_size;
-		bits_data = new BitSaveData[n_bits];
-		FILE *fp_hash = fopen((save_dir + "/hash.bin").c_str(), "rb");
-		FILE *fp_bit1 = fopen((save_dir + "/bit1.bin").c_str(), "rb");
-		FILE *fp_bit2 = fopen((save_dir + "/bit2.bin").c_str(), "rb");
-		for (int i = 0; i < n_bits; i++) {
-			bits_data[i].hash_seed = new uint32_t[n_hash];
-			bits_data[i].bit_array_length = t_byte_array_size << 3;
-			fread(bits_data[i].hash_seed, sizeof(uint32_t), n_hash, fp_hash);
-			bits_data[i].bit_array_1 = new uint8_t[t_byte_array_size];
-			fread(bits_data[i].bit_array_1, sizeof(uint8_t), t_byte_array_size, fp_bit1);
-			bits_data[i].bit_array_2 = new uint8_t[t_byte_array_size];
-			fread(bits_data[i].bit_array_2, sizeof(uint8_t), t_byte_array_size, fp_bit2);
-		}
-		fclose(fp_hash);
-		fclose(fp_bit1);
-		fclose(fp_bit2);
-		FILE *fp_km_back = fopen((save_dir + "/km_back.bin").c_str(), "rb");
-		km_back = new uint8_t[byte_km_back];
-		fread(km_back, sizeof(uint8_t), byte_km_back, fp_km_back);
-		fclose(fp_km_back);
-		uint64_t k[BK];
-		uint32 v[BK], bin = last_map_size / BK, last = last_map_size % BK;
-		FILE *fp_map_r = fopen((save_dir + "/last_map.bin").c_str(), "rb");
-		for (int i = 0; i < bin; i++) {
-			fread(k, sizeof(uint64_t), BK, fp_map_r);
-			fread(v, sizeof(uint32_t), BK, fp_map_r);
-			for (int j = 0; j < BK; j++) {
-				last_map.insert(pair<uint64_t, uint32_t>(k[j], v[j]));
-			}
-		}
-		if (last) {
-			fread(k, sizeof(uint64_t), last, fp_map_r);
-			fread(v, sizeof(uint32_t), last, fp_map_r);
-			for (int j = 0; j < last; j++) {
-				last_map.insert(pair<uint64_t, uint32_t>(k[j], v[j]));
-			}
-		}
-		fclose(fp_map_r);
+	int kmer_to_occ(string kmer, uint32_t r_occ = 0) {
+		//1.get the mini kmer
+		kmer = Tools::get_min_kmer(kmer);
+		//2.check map
+		int occ = kld->check_kmer(kmer);
+		if (occ != 0) return occ;
+		//3.check km_back
+		bool is_in_back = check_back_bloomfilter(kmer, km_back, bit_km_back, km_back_num_hash);
+		occ = check_all_bf(kmer);
+		if (occ != 0 && !is_in_back) return occ;
+		//if (occ != 0) return occ;
+		if (!is_in_back) return 0;
+		//4.check bit
+		int bin = kmer_to_bin(kmer, occ);
+		occ = occu_bin->bin_to_mean(bin);
+		return occ;
 	}
 
 	void show_header_info() {
-		cout << "   Number of hash functions              :  " << n_hash << endl;
-		cout << "   Number of coupled-bit arrays          :  " << n_bits << endl;
-		cout << "   Number of k-mers having count=1       :  " << once_kmer_count << endl;
-		cout << "   Number of k-mers having count>1       :  " << kmodel_kmer_count << endl;
+		cout << "KMCEX:" << endl;
+		cout << "   kmodel number hash                 :     " << n_hash << endl;
+		cout << "   kmodel bit array                   :     " << n_bits << endl;
+		cout << "   total kmercount                    :     " << total_kmer_count << endl;
+		cout << "   kmercount in blommfilter           :     " << bf_kmercount << endl;
+		cout << "   kmercount in kmodel                :     " << km_kmercount << endl;
 	}
 
-	void show_usage_rate() {
+	void show_kmodel_info() {
+		uint64_t total_byte_size = 0;
+		uint64_t bf_byte_size = 0;
+		for (int i = 0; i < bf_num; i++) {
+			bf_byte_size += byte_bf[i] + byte_bf_back[i];
+		}
+		uint64_t km_byte_size = 0;
+		for (int i = 0; i < n_bits; i++) {
+			km_byte_size += bits_data[i].bit_array_length >> 3;
+		}
+		km_byte_size *= 2;
+		uint64_t map_byte = kld->get_all_byte_size();
+		total_byte_size = bf_byte_size + km_byte_size + map_byte + byte_km_back;
+		cout << "   kmercount hash map                 :     " << kld->get_rest_count() << endl;
+		cout << "   memory bloomfilter                 :     " << Tools::filesize_format(bf_byte_size) << endl;
+		cout << "   memory bit array                   :     " << Tools::filesize_format(km_byte_size) << endl;
+		cout << "   memory rest map                    :     " << Tools::filesize_format(map_byte) << endl; //last_map=44byte
+		cout << "   total memory                       :     " << Tools::filesize_format(total_byte_size) << endl;
+		cout << "   build time cost                    :     " << build_time_cost << endl;
+
 		int b = 8, n = 1 << b;
 		int* dic_num = new int[n];
 		for (int i = 0; i<n; i++) {
@@ -215,109 +154,157 @@ public:
 			}
 			dic_num[i] = sum;
 		}
-		double total_c = 0;
-		for (int i = 0; i < n_bits; i++) {
-			double c2 = 0, byte_size = bits_data[i].bit_array_length >> 3;
-			for (uint64_t p = 0; p < byte_size; p++) {
-				int idx = bits_data[i].bit_array_2[p];
-				c2 += dic_num[idx];
-			}
-			total_c += c2;
-			printf("   No.%d coupled-bit array occupancy rate :  %0.3f\n", i + 1, c2 / bits_data[i].bit_array_length);
-		}
 		delete[] dic_num;
+		//double total_c = 0;
+		//for (int i = 0; i < n_bits; i++) {
+		//	double c2 = 0, byte_size = bits_data[i].bit_array_length >> 3;
+		//	for (uint64_t p = 0; p < byte_size; p++) {
+		//		int idx = bits_data[i].bit_array_2[p];
+		//		c2 += dic_num[idx];
+		//	}
+		//	total_c += c2;
+		//	printf("   no.%d bit array usage rate          :     %0.3f\n", i + 1, c2 / bits_data[i].bit_array_length);
+		//}
+
 	}
 
-	virtual void show_bloomfilter_info(uint64_t total_byte) {
-		cout << "   (k-2)-mer BF size for count>1 k-mers   :  " << Tools::filesize_format(byte_km_back) << endl;
-		total_byte += byte_km_back;
-		cout << "   Total memory usage                     :  " << Tools::filesize_format(total_byte) << endl;
-	}
 
-	void show_kmodel_info() {
-		uint64_t total_byte_array_size = 0;
-		for (int i = 0; i < n_bits; i++) {
-			total_byte_array_size += bits_data[i].bit_array_length >> 3;
+	//save model
+	void save(string save_dir) {
+		////save the header of the model
+		ofstream fout(save_dir + "/header");
+		fout << "number_hash " << n_hash << endl;
+		fout << "number_bit " << n_bits << endl;
+		fout << "ci " << ci << endl;
+		fout << "cs " << cs << endl;
+		fout.close();
+		////save km_bin
+		//write kmer_counts,bit_bf and bit_bf_back
+		FILE *fp_km = fopen((save_dir + "/km.bin").c_str(), "wb");
+		fwrite(&km_kmercount, sizeof(uint64_t), 1, fp_km);
+		for (int i = 0; i < bf_num; i++) {
+			fwrite(&kmer_counts[i], sizeof(uint64_t), 1, fp_km);
 		}
-		total_byte_array_size *= 2;
-		double left = kmodel_kmer_count; 
-		uint64_t map_byte = last_map.size() * 44;
-		cout << "   Memory usage for coupled-bit arrays   :  " << Tools::filesize_format(total_byte_array_size) << endl;
-		cout << "   Memory usage for hash_map             :  " << Tools::filesize_format(map_byte) << endl; 
-		total_byte_array_size += map_byte;
-		show_bloomfilter_info(total_byte_array_size);
-		show_usage_rate();
+		for (int i = 0; i < bf_num; i++) {
+			fwrite(bit_bf[i], sizeof(uint8_t), byte_bf[i], fp_km);
+			fwrite(bit_bf_back[i], sizeof(uint8_t), byte_bf_back[i], fp_km);
+		}
+		//write km_back_bloomfilter
+		fwrite(km_back, sizeof(uint8_t), byte_km_back, fp_km);
+		//write km_bit_array
+		for (int i = 0; i < n_bits; i++) {
+			//2.1hash_function
+			//fwrite(bits_data[i].hash_seed, sizeof(uint32_t), n_hash, fp_km);
+			//bit_array_1
+			fwrite(bits_data[i].bit_array_1, sizeof(uint8_t), km_byte_size, fp_km);
+			//bit_array_2
+			fwrite(bits_data[i].bit_array_2, sizeof(uint8_t), km_byte_size, fp_km);
+		}
+		fclose(fp_km);
+		////save last_map
+		kld->save_file(save_dir + "/rest.bin");
 	}
 
+	//load model
+	void load(string save_dir) {
+		//load kmer_count
+		FILE *fp_km = fopen((save_dir + "/km.bin").c_str(), "rb");
+		fread(&km_kmercount, sizeof(uint64_t), 1, fp_km);
 
-protected:
+		for (int i = 0; i < bf_num; i++) {
+			fread(&kmer_counts[i], sizeof(uint64_t), 1, fp_km);
+		}
+		init_bf_parameter();
+		for (int i = 0; i < bf_num; i++) {
+			fread(bit_bf[i], sizeof(uint8_t), byte_bf[i], fp_km);
+			fread(bit_bf_back[i], sizeof(uint8_t), byte_bf_back[i], fp_km);
+		}
+		init_km_parameter(km_kmercount);
+		//load km_back_bloomfilter
+		fread(km_back, sizeof(uint8_t), byte_km_back, fp_km);
+		//load KModel
+		for (int i = 0; i < n_bits; i++) {
+			fread(bits_data[i].bit_array_1, sizeof(uint8_t), km_byte_size, fp_km);
+			//bit_array_2
+			fread(bits_data[i].bit_array_2, sizeof(uint8_t), km_byte_size, fp_km);
+		}
+		fclose(fp_km);
+		//load last_map
+		kld = new KRestData();
+		kld->from_file(save_dir + "/rest.bin");
+	}
+
+private:
 	OccuBin* occu_bin;
+	int ci;
+	int cs;
+	int kmer_length;
 	int n_hash;
 	int n_bits;
-	int last_map_size = 0; //the kmer count that can't save to bit_array and save to last_map
-	uint64_t once_kmer_count = 0; //the kmer_count that the kmer only appears once
-	uint64_t kmodel_kmer_count = 0; //the kmer_count stored in kmodel
-	uint64_t byte_array_size; //byte size
-	uint64_t bit_array_length; //the real bit table length,bit_array_length=byte_array_size*8
-	unordered_map<uint64_t, uint32_t> last_map; //save the left kmer
+	uint64_t total_kmer_count = 0;
+	int bf_num = 1;
+	int bf_index[3] = { 1,0,2 };
+
+	//*bloomfilter and k-2 back bloomfilter*//
+	uint64_t kmer_counts[3] = { 0 }; 
+	uint8_t **bit_bf;
+	uint8_t **bit_bf_back;
+	uint64_t* byte_bf;
+	uint64_t* length_bf;
+	uint64_t* byte_bf_back;
+	uint64_t* length_bf_back;
+	uint64_t bf_kmercount = 0;
+	int bf_num_hash = 6;
+	int bf_back_num_hash = 5; 
+
+	//*kmodel*//
+	double build_time_cost;
+	uint64_t km_kmercount = 0;
+	uint64_t km_byte_size; //array in byte size
+	uint64_t km_bit_size; //km_bit_size=km_byte_size*8
+
+		
+	uint8_t* km_back;//k-2_kmer bloomfilter in km
+	int km_back_num_hash = 5;
+	uint64_t byte_km_back, bit_km_back;
+
 	BitSaveData* bits_data;
-	uint8_t* km_back;
-	int km_back_n_hash = 5;
-	uint64_t byte_km_back, length_km_back;
-	KmerBuff **buff; //buff array used by thread
+	KRestData* kld;
+
+	//**km insertion buffer**//
+	KmerBuff **km_buff; //buff array used by thread
 	uint32 bucket_size = 1 << 18;
-	int* buff_n; //the real length of buffer
-	int buff_size;// bucket_size*this->n_bits;
-	uint64_t buff_idx = 0;
-	virtual void get_candidates(string kmer, vector<int> &v_candidates) {
-		string min_kmer = Tools::get_min_kmer(kmer);
-		int v_from_map = get_kmer_from_map(min_kmer);
-		if (v_from_map > -1) {
-			v_candidates.push_back(occu_bin->occ_to_bin(v_from_map));
-			return;
-		}
-		if (check_back_bloomfilter(min_kmer, km_back, length_km_back, km_back_n_hash)) {
-			int v = find_bitarray_one(min_kmer);
-			if (v > -1) v_candidates.push_back(v);
-		}
-	}
+	int* km_buff_num; //the real length of buffer
+	int km_buff_size;// bucket_size*this->n_bits;
+	uint32_t km_buff_idx = 0;
 
-	vector<int> get_neighbor_kmer_bin(string kmer) {
-		vector<int> v_candidates;
-		string s = "ACGT", t1_kmer, t2_kmer;
-		int kmer_len = kmer.length();
-		t1_kmer = kmer.substr(1); //remove the first char
-		t2_kmer = kmer.substr(0, kmer_len - 1);//remove the last char 
-		for (int i = 0; s[i]; i++) { //shift forward
-			string nw_kmer = t1_kmer + s[i];
-			get_candidates(nw_kmer, v_candidates);
-		}
-		for (int i = 0; s[i]; i++) { //shift back
-			string nw_kmer = s[i] + t2_kmer;
-			get_candidates(nw_kmer, v_candidates);
-		}
-		return v_candidates;
-	}
+	//**blommfilter insertion buffer**//
+	KmerBuff* bf_buff = new KmerBuff[BLOACK_SIZE]; //buff array used by thread
+	uint32_t bf_buff_idx = 0;
 
-	int kmer_to_bin(string kmer, bool in_bloomfilter, int occ) {
+
+	int kmer_to_bin(string kmer, int occ) {
 		vector<int> v_bin = find_bitarray(kmer);
 		int len_v_bin = v_bin.size();
 		if (len_v_bin == 0) {
-			return in_bloomfilter ? 1 : 0;
+			return occ; //caused by false positive,may be in one of the bloomfilter
 		}
 		if (len_v_bin == 1) {
-			if (in_bloomfilter) {
+			if (occ) {
 				vector<int> v_candidates = get_neighbor_kmer_bin(kmer);
-				int cnt_one = 0;
+				//if (v_candidates.size() <= 0)return 0;
+				int cnt_bf = 0;
 				for (auto v : v_candidates)
-					if (v == 1) cnt_one++;
-				if (cnt_one >= v_candidates.size() / 2) return 1;
+					if (v < ci + bf_num) cnt_bf++;
+				if (cnt_bf >= v_candidates.size() / 2) return occ;
 			}
-			return v_bin[0]; //80%
+			return v_bin[0];
 		}
+		//k can be found in more than one coupling-bit arrays.
 		vector<int> v_candidates = get_neighbor_kmer_bin(kmer);
 		int len_v_can = v_candidates.size();
 		if (len_v_can <= 0) { //none candidates=FP
+							  //cout << kmer << " " << Tools::get_complementation(kmer) << " " << occ << endl;///
 			return 0;
 		}
 		int min_dist = (2 << 20), best_bin = v_bin[0];
@@ -335,6 +322,54 @@ protected:
 		return best_bin;
 	}
 
+	//check the neighbor of kmer
+	void get_candidates(string kmer, vector<int> &v_candidates) {
+		string min_kmer = Tools::get_min_kmer(kmer);
+		int v_from_map = kld->check_kmer(min_kmer); //get_kmer_from_map(min_kmer);
+		if (v_from_map > 0) {
+			v_candidates.push_back(occu_bin->occ_to_bin(v_from_map));
+			return;
+		}
+		int occ = check_all_bf(min_kmer);
+		if (occ != 0) {
+			v_candidates.push_back(occ);
+			return;
+		}
+		if (check_back_bloomfilter(min_kmer, km_back, bit_km_back, km_back_num_hash)) {
+			int v = find_bitarray_one(min_kmer);
+			if (v > -1) v_candidates.push_back(v);
+		}
+	}
+
+	vector<int> get_neighbor_kmer_bin(string kmer) {
+		vector<int> v_candidates;
+		string t1_kmer, t2_kmer;
+		int kmer_len = kmer.length();
+		t1_kmer = kmer.substr(1); //remove the first char
+		t2_kmer = kmer.substr(0, kmer_len - 1);//remove the last char 
+		for (int i = 0; BASE_CHAR[i]; i++) { //shift forward
+			string nw_kmer = t1_kmer + BASE_CHAR[i];
+			get_candidates(nw_kmer, v_candidates);
+		}
+		for (int i = 0; BASE_CHAR[i]; i++) { //shift back
+			string nw_kmer = BASE_CHAR[i] + t2_kmer;
+			get_candidates(nw_kmer, v_candidates);
+		}
+		return v_candidates;
+	}
+
+	int check_all_bf(string kmer) {
+		for (int j = 0; j < bf_num; j++) {
+			int i = ci == 1 ? j : bf_index[j]; //3 in the first£¨bloomfilter 3 2 4£©
+			bool b_bf = check_bloomfilter(kmer, bit_bf[i], length_bf[i], bf_num_hash);
+			bool b_bf_back = check_back_bloomfilter(kmer, bit_bf_back[i], length_bf_back[i], bf_back_num_hash);
+			if (b_bf && b_bf_back) {
+				return i + ci;
+			}
+		}
+		return 0;
+	}
+
 	bool check_bloomfilter(std::string kmer, uint8_t* bit_bf, uint64_t bf_length, int num_hash) {
 		uint64_t pos;
 		int len = kmer.size();
@@ -347,6 +382,119 @@ protected:
 		return true;
 	}
 
+	//To decrease false positive, check k-2_mer bloomfilter
+	bool check_back_bloomfilter(string kmer, uint8_t* bit_bf, uint64_t bf_length, int num_hash) {
+		int len = kmer.length();
+		string nw_kmer = kmer.substr(1, len - 2);
+		return check_bloomfilter(nw_kmer, bit_bf, bf_length, num_hash);
+	}
+
+	//open the kmc db
+	void kmc_api(string file_kmer_data_base, CKMCFile &kmer_data_base, CKmerAPI &kmer_object) {
+		if (!kmer_data_base.OpenForListing(file_kmer_data_base)) {
+			cout << "can't open the kmer_data_base " << file_kmer_data_base << endl;
+			exit(1);
+		}
+		kmer_length = kmer_data_base.KmerLength();
+		kmer_object = CKmerAPI(kmer_length);
+	}
+
+	void init_bf_parameter() {
+		bit_bf = new uint8_t*[bf_num];
+		bit_bf_back = new uint8_t*[bf_num];
+		byte_bf = new uint64_t[bf_num];
+		length_bf = new uint64_t[bf_num];
+		byte_bf_back = new uint64_t[bf_num];
+		length_bf_back = new uint64_t[bf_num];
+		for (int i = 0; i < bf_num; i++) {
+			//k bloomfilter
+			byte_bf[i] = kmer_counts[i] / 5.5 * bf_num_hash;
+			length_bf[i] = byte_bf[i] << 3;
+			bit_bf[i] = new uint8_t[byte_bf[i]]{ 0 };
+			//k-2 back
+			byte_bf_back[i] = (kmer_counts[i] >> 3)* bf_back_num_hash;
+			length_bf_back[i] = byte_bf_back[i] << 3;
+			bit_bf_back[i] = new uint8_t[byte_bf_back[i]]{ 0 };
+			bf_kmercount += kmer_counts[i];
+		}
+	}
+
+	//get the kmer count wihic freq=1 2 3 or 2 3 4 for specific ci
+	uint64_t get_km_kmer_count(CKMCFile &kmer_data_base, CKmerAPI kmer_object) {
+		uint32 counter;
+		while (kmer_data_base.ReadNextKmer(kmer_object, counter)) {
+			if (counter < ci + bf_num)
+				kmer_counts[counter - ci]++;
+		}
+		total_kmer_count = kmer_data_base.KmerCount();
+		kmer_data_base.RestartListing(); //RestartListing
+										 //init bloomfilter
+		init_bf_parameter();
+		return total_kmer_count - bf_kmercount;
+	}
+
+	void init_km_parameter(uint64_t km_kmercount) {
+		km_byte_size = (km_kmercount >> 4) * n_hash;
+		km_bit_size = km_byte_size << 3;
+		byte_km_back = (km_kmercount >> 4)* km_back_num_hash;
+		bit_km_back = byte_km_back << 3;
+		bits_data = new BitSaveData[n_bits];
+		km_back = new uint8_t[byte_km_back]{ 0 };
+		for (int i = 0; i < n_bits; i++) {
+			BitSaveData bit_data;
+			bit_data.bit_array_length = km_bit_size;
+			bit_data.bit_array_1 = new uint8_t[km_byte_size]{ 0 };
+			bit_data.bit_array_2 = new uint8_t[km_byte_size]{ 0 };
+			bit_data.hash_seed = new uint32_t[n_hash];
+			//set num_bit hash seed
+			for (int j = 0; j < n_hash; j++) {
+				int index = (i*n_hash + j) % 128;
+				bit_data.hash_seed[j] = HashSeeds[index];
+			}
+			bits_data[i] = bit_data;
+		}
+	}
+
+	void init_km_bit(uint64_t km_kmercount) {
+		//1. init parameter size 
+		init_km_parameter(km_kmercount);
+		//2. init km_buff
+		km_buff = new KmerBuff*[n_bits];
+		km_buff_num = new int[n_bits];
+		km_buff_size = bucket_size*n_bits;
+		for (int i = 0; i < n_bits; i++) {
+			km_buff[i] = new KmerBuff[bucket_size];
+			km_buff_num[i] = bucket_size;
+		}
+		//3.init KRestData
+		kld = new KRestData(kmer_length);
+	}
+
+	void push_bloomfilter(string kmer, int i) {
+		insert_bloomfilter(kmer, bit_bf[i], length_bf[i], bf_num_hash);
+		string nw_kmer = kmer.substr(1, kmer.size() - 2);
+		insert_bloomfilter(nw_kmer, bit_bf_back[i], length_bf_back[i], bf_back_num_hash);
+	}
+
+	void push_to_bloomfilter(string kmer, uint32 occ) {
+		bf_buff[bf_buff_idx].kmer = kmer;
+		bf_buff[bf_buff_idx++].occ = occ;
+		if (bf_buff_idx >= BLOACK_SIZE) {
+#pragma omp parallel for num_threads(4)
+			for (int i = 0; i < BLOACK_SIZE; ++i) {
+				push_bloomfilter(bf_buff[i].kmer, bf_buff[i].occ - ci);
+			}
+			bf_buff_idx = 0;
+		}
+	}
+
+	void push_last_to_bloomfilter() {
+#pragma omp parallel for num_threads(4)
+		for (int i = 0; i < bf_buff_idx; ++i) {
+			push_bloomfilter(bf_buff[i].kmer, bf_buff[i].occ - ci);
+		}
+	}
+
 	void insert_bloomfilter(string kmer, uint8_t* bit_bf, uint64_t bf_length, int num_hash) {
 		uint64_t pos;
 		int len = kmer.size();
@@ -357,21 +505,25 @@ protected:
 		}
 	}
 
-
-	bool check_back_bloomfilter(string kmer, uint8_t* bit_bf, uint64_t bf_length, int num_hash) {
-		int len = kmer.length();
-		string nw_kmer = kmer.substr(1, len - 2);
-		return check_bloomfilter(nw_kmer, bit_bf, bf_length, num_hash);
+	void push_to_array(string kmer, uint32 occ) {
+		int row = km_buff_idx / bucket_size;
+		int col = km_buff_idx%bucket_size;
+		km_buff[row][col].kmer = kmer;
+		km_buff[row][col].occ = occ;
+		km_buff_idx++;
+		if (km_buff_idx >= km_buff_size) {
+			insert_with_thread(km_buff, km_buff_num, n_bits, bucket_size);
+			km_buff_idx = 0;
+		}
 	}
 
-
-	void init_kmc_api(string file_kmer_data_base, CKMCFile &kmer_data_base, CKmerAPI &kmer_object) {
-		if (!kmer_data_base.OpenForListing(file_kmer_data_base)) {
-			cout << "init_occ_count()__can't open the kmer_data_base\n";
-			exit(1);
-		}
-		uint32 _kmer_length = kmer_data_base.KmerLength();
-		kmer_object = CKmerAPI(_kmer_length);
+	void push_last_to_array(int n_thread) {
+		int row = (km_buff_idx - 1) / bucket_size;
+		int col = (km_buff_idx - 1) % bucket_size;
+		km_buff_num[row] = col + 1;
+		for (int i = row + 1; i < n_thread; i++)
+			km_buff_num[i] = 0;
+		insert_with_thread(km_buff, km_buff_num, n_thread, bucket_size);
 	}
 
 	int reorder_buffer(KmerBuff* a, int n) {
@@ -384,15 +536,18 @@ protected:
 				a[ir].occ = 0;
 			}
 		}
-		return a[il].occ ? il + 1 : 0; 
+		return a[il].occ ? il + 1 : 0; //il==0 -> All inserted successfully
 	}
 
+	//push buffer data into bit_array
 	void insert_array(KmerBuff* buff, int index, int &buff_n) {
 		for (int c = 0; c < buff_n; c++) {
 			bool flag = insert_to_array(buff[c].kmer, occu_bin->occ_to_bin(buff[c].occ), index);
 			if (flag) {
+				//for kmodel_k-2_mer
 				string nw_kmer = buff[c].kmer.substr(1, buff[c].kmer.size() - 2);
-				insert_bloomfilter(nw_kmer, this->km_back, this->length_km_back, this->km_back_n_hash);
+				//nw_kmer = Tools::get_min_kmer(nw_kmer);
+				insert_bloomfilter(nw_kmer, km_back, bit_km_back, km_back_num_hash);
 				buff[c].occ = 0;
 			}
 		}
@@ -401,102 +556,41 @@ protected:
 
 	void insert_with_thread(KmerBuff** buff, int* buff_real_n, int n_thread, int bucket_size) {
 		int i, j;
+		//for kmodel
 		for (int t = 0; t < n_thread; t++) {
-			#pragma omp parallel for num_threads(n_thread)
+#pragma omp parallel for num_threads(n_thread)
 			for (i = 0; i < n_thread; ++i) {
 				insert_array(buff[i], (i + t) % n_thread, buff_real_n[i]);
 			}
 		}
+		//save the last items into map
 		for (i = 0; i < n_thread; ++i) {
 			for (j = 0; j < buff_real_n[i]; ++j) {
-				uint64_t key = Tools::kmers2uint64(buff[i][j].kmer);
-				last_map.insert(make_pair(key, buff[i][j].occ));
+				kld->push_back(buff[i][j].kmer, (int)buff[i][j].occ);
 			}
 			buff_real_n[i] = bucket_size;
 		}
 	}
 
-	virtual void init_buff(int n_thread) {
-		buff = new KmerBuff*[n_thread];
-		buff_n = new int[n_thread];
-		buff_size = bucket_size*n_thread;
-		for (int i = 0; i < n_thread; i++) {
-			buff[i] = new KmerBuff[bucket_size];
-			buff_n[i] = bucket_size;
-		}
-	}
-
-	void push_to_array(string kmer, uint32 occ) {
-		int row = buff_idx / bucket_size;
-		int col = buff_idx%bucket_size;
-		buff[row][col].kmer = kmer;
-		buff[row][col].occ = occ;
-		buff_idx++;
-		if (buff_idx >= buff_size) {
-			insert_with_thread(buff, buff_n, n_bits, bucket_size);
-			buff_idx = 0;
-		}
-	}
-
-	void push_last_to_array(int n_thread) {
-		int row = (buff_idx - 1) / bucket_size;
-		int col = (buff_idx - 1) % bucket_size;
-		buff_n[row] = col + 1;
-		for (int i = row + 1; i < n_thread; i++)
-			buff_n[i] = 0;
-		insert_with_thread(buff, buff_n, n_thread, bucket_size);
-
-		delete[] buff;
-		delete buff_n;
-	}
-
+	//set the position in the bit to one
 	inline void set_bit(uint8_t *bit, uint64_t pos) {
 		uint64_t row = pos >> 3;
 		uint64_t col = pos & 0x7;
 		uint8_t x = 0x1 << (8 - col - 1); //set the bit in the column in the table 
-		__sync_fetch_and_or(bit + row, x);
+		__sync_fetch_and_or(bit + row, x);//bit[row] |= x;
 	}
 
+	//check the position in the bit is one or zero 
 	inline bool check_bit(const uint8_t *bit, uint64_t pos) {
 		uint64_t row = pos >> 3;
 		uint64_t col = pos & 0x7;
 		return (bit[row] >> (8 - col - 1)) & 0x1;
 	}
 
-	virtual void set_bit_array_size(uint64 kmer_count) {
-		this->kmodel_kmer_count = kmer_count;
-		this->byte_array_size = (kmer_count >> 4) * n_hash;
-		this->bit_array_length = this->byte_array_size << 3;
-		this->byte_km_back = (kmer_count >> 4)* this->km_back_n_hash;
-		this->length_km_back = this->byte_km_back << 3;
-	}
-
-	virtual void init_bit_aray(uint64 kmer_count) {
-		set_bit_array_size(kmer_count);
-		bits_data = new BitSaveData[n_bits];
-		km_back = new uint8_t[byte_km_back];
-		memset(km_back, 0, sizeof(uint8_t)*byte_km_back);
-		uint64_t t_byte_array_size = this->byte_array_size;
-		for (int i = 0; i < n_bits; i++) {
-			BitSaveData bit_data;
-			bit_data.bit_array_length = t_byte_array_size << 3;
-			bit_data.bit_array_1 = new uint8_t[t_byte_array_size];
-			bit_data.bit_array_2 = new uint8_t[t_byte_array_size];
-			memset(bit_data.bit_array_1, 0, sizeof(uint8_t)*t_byte_array_size);
-			memset(bit_data.bit_array_2, 0, sizeof(uint8_t)*t_byte_array_size);
-			bit_data.hash_seed = new uint32_t[n_hash];
-			for (int j = 0; j < n_hash; j++) {
-				int index = (i*n_hash + j) % 128;
-				bit_data.hash_seed[j] = HashSeeds[index];
-			}
-			bits_data[i] = bit_data;
-		}
-	}
-
-
 	bool insert_to_array(string kmer, uint32_t occ, int index) {
-		uint64_t* bit1_v = new uint64_t[n_hash];
-		uint64_t* bit2_v = new uint64_t[n_hash];
+		//make bit1_v and bit2_v class memeber
+		uint64_t* bit1_v = new uint64_t[n_hash];// the binary value of frequency in bit_array_1 
+		uint64_t* bit2_v = new uint64_t[n_hash];// the index of bit_array_2
 		uint32_t*  hash_seed = bits_data[index].hash_seed;
 		uint8_t* bit_array_1 = bits_data[index].bit_array_1;
 		uint8_t* bit_array_2 = bits_data[index].bit_array_2;
@@ -506,7 +600,7 @@ protected:
 			bit2_v[i] = Tools::murmur_hash64(kmer.c_str(), kmer.size(), hash_seed[i]) % array_length;
 			occ >>= 1;
 		}
-		bool ok = true; 
+		bool ok = true; //the flag if this kmer can be inserted
 		for (int i = 0; i < n_hash; i++) {
 			uint8_t v1 = check_bit(bit_array_1, bit2_v[i]);
 			uint8_t v2 = check_bit(bit_array_2, bit2_v[i]);
@@ -527,6 +621,7 @@ protected:
 		return ok;
 	}
 
+	//travel the bit array to get the occurrence of the kmer
 	vector<int> find_bitarray(string kmer) {
 		vector<int> v_bin;
 		int result = -1;
@@ -551,6 +646,7 @@ protected:
 	}
 
 
+	//travel the bit array and just get one occurrence of the kmer
 	int find_bitarray_one(string kmer) {
 		vector<int> v_bin;
 		int result = -1;
@@ -575,205 +671,29 @@ protected:
 	}
 };
 
-class KModelOne : public KModel
-{
-public:
-	KModelOne() {}
-	KModelOne(OccuBin* occu_bin, int n_bits) : KModel(occu_bin, n_bits)
-	{
-		this->bf_n_hash = occu_bin->get_nhash() - 1;
-		this->bf_back_n_hash = occu_bin->get_nhash() - 2;
-	}
-
-	void init_buff(int n_thread) {
-		KModel::init_buff(n_thread);
-		kmer_once_buff = new string[kmer_once_buff_size];
-	}
-
-	void push_to_bloom(int t_num = 4) {
-#pragma omp parallel for num_threads(t_num) 
-		for (int i = 0; i < once_idx; ++i)
-		{
-			insert_to_bloomfilter(kmer_once_buff[i]);
-		}
-	}
-
-	void init_KModel(string file_kmer_data_base) {
-		uint32 counter;
-		int i;
-		CKMCFile kmer_data_base;
-		CKmerAPI kmer_object;
-		init_kmc_api(file_kmer_data_base, kmer_data_base, kmer_object);
-		calc_one_kmer_count(kmer_data_base, kmer_object);
-		init_bit_aray(kmer_data_base.KmerCount());
-		init_buff(n_bits);
-		show_header_info(); 
-		auto start = chrono::high_resolution_clock::now();
-		while (kmer_data_base.ReadNextKmer(kmer_object, counter)) {
-			if (counter == 1) {
-				kmer_once_buff[once_idx++] = kmer_object.to_string();
-				if (once_idx >= kmer_once_buff_size) {
-					push_to_bloom();
-					once_idx = 0;
-				}
-			}
-			else
-				push_to_array(kmer_object.to_string(), counter);
-		}
-		push_last_to_array(n_bits);
-		push_to_bloom();
-		delete[] kmer_once_buff;
-		chrono::duration<double> dur = chrono::high_resolution_clock::now() - start;
-		cout << "   kmcEx model construction time         :  " << dur.count() << endl;
-		kmer_data_base.Close();
-	}
-
-	int kmer_to_occ(string kmer, uint32_t r_occ = 0) {
-		kmer = Tools::get_min_kmer(kmer);
-		int occ = get_kmer_from_map(kmer);
-		if (occ > -1) {
-			return occ;
-		}
-		bool b_km_back = check_back_bloomfilter(kmer, km_back, length_km_back, km_back_n_hash);
-		bool b_bf01 = check_bloomfilter(kmer, bit_bf1, length_bf1, bf_n_hash);
-		bool b_bf01_back = check_back_bloomfilter(kmer, bit_bf1_back, length_bf1_back, bf_back_n_hash);
-		bool in_bloomfilter = b_bf01 && b_bf01_back;
-		if (!b_km_back && !in_bloomfilter) {  
-			return 0;
-		}
-		if (in_bloomfilter && !b_km_back) return 1;
-		int bin = kmer_to_bin(kmer, in_bloomfilter, r_occ);
-		occ = occu_bin->bin_to_mean(bin);
-		return occ;
-	}
-
-	void save_model(string save_dir) {
-		KModel::save_model(save_dir);
-		FILE *fp_bloom = fopen((save_dir + "/bloom.bin").c_str(), "wb");
-		fwrite(bit_bf1, sizeof(uint8_t), byte_bf1, fp_bloom);
-		fclose(fp_bloom);
-		FILE *fp_bloom2 = fopen((save_dir + "/bloom2.bin").c_str(), "wb");
-		fwrite(bit_bf1_back, sizeof(uint8_t), byte_bf1_back, fp_bloom2);
-		fclose(fp_bloom2);
-	}
-
-	void load_model(string save_dir) {
-		KModel::load_model(save_dir);
-		FILE *fp_bloom = fopen((save_dir + "/bloom.bin").c_str(), "rb");
-		bit_bf1 = new uint8_t[byte_bf1];
-		fread(bit_bf1, sizeof(uint8_t), byte_bf1, fp_bloom);
-		fclose(fp_bloom);
-		FILE *fp_bloom2 = fopen((save_dir + "/bloom2.bin").c_str(), "rb");
-		bit_bf1_back = new uint8_t[byte_bf1_back];
-		fread(bit_bf1_back, sizeof(uint8_t), byte_bf1_back, fp_bloom2);
-		fclose(fp_bloom2);
-	}
-
-protected:
-	uint8_t *bit_bf1; 
-	uint8_t *bit_bf1_back;
-	uint64_t byte_bf1, length_bf1;
-	uint64_t byte_bf1_back, length_bf1_back;
-	int bf_n_hash = 6;
-	int bf_back_n_hash = 5;
-
-	const uint32 kmer_once_buff_size = 1 << 19;
-	string* kmer_once_buff;
-	uint32 once_idx = 0;
-
-	void init_bit_aray(uint64 kmer_count) {
-		KModel::init_bit_aray(kmer_count);
-		bit_bf1 = new uint8_t[byte_bf1];
-		bit_bf1_back = new uint8_t[byte_bf1_back];
-		memset(bit_bf1, 0, sizeof(uint8_t)*byte_bf1);
-		memset(bit_bf1_back, 0, sizeof(uint8_t)*byte_bf1_back);
-	}
-
-	void set_bit_array_size(uint64 kmer_count) {
-		if (!this->kmodel_kmer_count) 
-			this->kmodel_kmer_count = kmer_count - this->once_kmer_count;
-		this->byte_array_size = (kmodel_kmer_count >> 4) * n_hash;
-		this->bit_array_length = this->byte_array_size << 3;
-
-		this->byte_bf1 = once_kmer_count / 5.5 * bf_n_hash;
-		this->length_bf1 = this->byte_bf1 << 3;
-		this->byte_bf1_back = (once_kmer_count >> 3)* bf_back_n_hash;
-		this->length_bf1_back = this->byte_bf1_back << 3;
-
-		this->byte_km_back = (kmodel_kmer_count >> 4)* this->km_back_n_hash;
-		this->length_km_back = this->byte_km_back << 3;
-	}
-
-	void insert_to_bloomfilter(string kmer) {
-		insert_bloomfilter(kmer, this->bit_bf1, this->length_bf1, this->bf_n_hash);
-		string nw_kmer = kmer.substr(1, kmer.size() - 2);
-		insert_bloomfilter(nw_kmer, this->bit_bf1_back, this->length_bf1_back, this->bf_back_n_hash);
-	}
-
-	void calc_one_kmer_count(CKMCFile &kmer_data_base, CKmerAPI kmer_object) {
-		uint32 counter;
-		while (kmer_data_base.ReadNextKmer(kmer_object, counter)) {
-			if (counter == 1)++once_kmer_count;
-		}
-		kmer_data_base.RestartListing();
-	}
-
-	void get_candidates(string kmer, vector<int> &v_candidates) {
-		string min_kmer = Tools::get_min_kmer(kmer);
-		int v_from_map = get_kmer_from_map(min_kmer);
-		if (v_from_map > -1) {
-			v_candidates.push_back(occu_bin->occ_to_bin(v_from_map));
-			return;
-		}
-		bool b_bf01 = check_bloomfilter(min_kmer, bit_bf1, length_bf1, bf_n_hash);
-		bool b_bf01_back = check_back_bloomfilter(min_kmer, bit_bf1_back, length_bf1_back, bf_back_n_hash);
-		if (b_bf01&&b_bf01_back) {
-			v_candidates.push_back(1);
-			return;
-		}
-		if (check_back_bloomfilter(min_kmer, km_back, length_km_back, km_back_n_hash)) {
-			int v = find_bitarray_one(min_kmer);
-			if (v > -1) v_candidates.push_back(v);
-		}
-	}
-
-	void show_bloomfilter_info(uint64_t total_byte) {
-		cout << "   (k-2)-mer BF size for count>1 k-mers  :  " << Tools::filesize_format(byte_km_back) << endl;
-		cout << "   k-mer BF size for count=1 k-mers      :  " << Tools::filesize_format(byte_bf1) << endl;
-		cout << "   (k-2)-mer BF size for count=1 k-mers  :  " << Tools::filesize_format(byte_bf1_back) << endl;
-		total_byte += byte_km_back + byte_bf1 + byte_bf1_back;
-		cout << "   Total memory usage                    :  " << Tools::filesize_format(total_byte) << endl;
-	}
-
-};
-
-
-KModel* get_model(int ci = 1,int cs=1023, int num_hash = 7, int num_bit = 5) {
+KModel* get_model(int ci = 1, int cs = 1023, int num_hash = 7, int num_bit = 5) {
 	OccuBin* occu_bin = new OccuBin(cs + 1, num_hash);
-	return ci > 1 ? new KModel(occu_bin, num_bit) : new KModelOne(occu_bin, num_bit);
+	return new KModel(occu_bin, num_bit, ci);
 }
 
+
 KModel* get_model(string save_dir) {
-	ifstream fin(save_dir + "/param.conf");
+	ifstream fin(save_dir + "/header");
 	if (!fin) {
-		cout << "Load_model: cant't open the param.conf !\n";
+		cout << "load_model: cant't open the header of the model !\n";
 		exit(1);
 	}
 	string t_str;
-	int n_hash, n_bits, max_counter, last_map_size;
-	uint64_t once_kmer_count, kmodel_kmer_count;
+	int n_hash, n_bits, ci, cs;
 	fin >> t_str >> n_hash;
 	fin >> t_str >> n_bits;
-	fin >> t_str >> once_kmer_count;
-	fin >> t_str >> kmodel_kmer_count;
-	fin >> t_str >> last_map_size;
-	fin >> t_str >> max_counter;
+	fin >> t_str >> ci;
+	fin >> t_str >> cs;
 	fin.close();
-	int ci = once_kmer_count > 0 ? 1 : 2;
-	KModel* km = get_model(ci, max_counter - 1, n_hash, n_bits);
-	km->set_load_param(once_kmer_count, kmodel_kmer_count, last_map_size);
-	km->load_model(save_dir);
+	KModel* km = get_model(ci, cs, n_hash, n_bits);
+	km->load(save_dir);
 	return km;
 }
+
 
 #endif

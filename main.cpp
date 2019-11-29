@@ -1,3 +1,13 @@
+//-----------------------------------------------
+// Copyright 2016 Guangxi University
+// Written by Liang Zhao(S080011@e.ntu.edu.sg)
+// Released under the GPL
+//-----------------------------------------------
+//
+// kmcEx - Main driver program
+// It's developed based on SGA, originally writen by Jared Simpson (js18@sanger.ac.uk)
+//
+
 #include "kmodel.hpp"
 #include <stdlib.h>
 #include "omp.h"
@@ -14,15 +24,15 @@ struct KParams {
 	string output_file_name;
 	string working_directory = "/tmp";
 
-}Params;
+}kParams;
 
 
 void read_me() {
 	cout << "----------------------------------------------------------------------" << endl;
 	cout << "           kmcEx: counted k-mer encoding & decoding                   " << endl;
 	cout << "----------------------------------------------------------------------" << endl;
-	cout << "VERSION: 1.3" << endl;
-	cout << "DATE   : Apr 2nd, 2019" << endl;
+	cout << "VERSION: 1.5" << endl;
+	cout << "DATE   : Nov 2nd, 2019" << endl;
 	cout << "----------------------------------------------------------------------" << endl << endl;
 	cout << "1. USAGE" << endl;
 	cout << "     kmcEx [options] <input_file_name> <output_file_name> <working_directory>" << endl;
@@ -62,44 +72,57 @@ bool parse_parameters(int argc, char *argv[]) {
 			break;
 		// Number of threads
 		if (strncmp(argv[i], "-t", 2) == 0)
-			Params.t = atoi(&argv[i][2]);
+			kParams.t = atoi(&argv[i][2]);
 		// k-mer length
 		else if (strncmp(argv[i], "-k", 2) == 0)
-			Params.k = atoi(&argv[i][2]);
+			kParams.k = atoi(&argv[i][2]);
 		//hsah number
 		else if (strncmp(argv[i], "-nh", 3) == 0)
-			Params.num_hash = atoi(&argv[i][3]);
+			kParams.num_hash = atoi(&argv[i][3]);
 		//bit number
 		else if (strncmp(argv[i], "-nb", 3) == 0)
-			Params.num_bit = atoi(&argv[i][3]);
+			kParams.num_bit = atoi(&argv[i][3]);
 		// Minimum counter threshold
 		else if (strncmp(argv[i], "-ci", 3) == 0)
-			Params.ci = atoi(&argv[i][3]);
+			kParams.ci = atoi(&argv[i][3]);
 		//maximal value of a counter
 		else if (strncmp(argv[i], "-cs", 3) == 0)
-			Params.cs = atoi(&argv[i][3]);
+			kParams.cs = atoi(&argv[i][3]);
 	}
 
 	if (argc - i < 3)
 		return false;
 	i = argc - 3;
-	Params.input_file_name = string(argv[i++]);
-	Params.output_file_name = string(argv[i++]);
-	Params.working_directory = string(argv[i++]);
-	if (Params.input_file_name.length() <= 0) {
+	kParams.input_file_name = string(argv[i++]);
+	kParams.output_file_name = string(argv[i++]);
+	kParams.working_directory = string(argv[i++]);
+	if (kParams.input_file_name.length() <= 0) {
 		cout << "input_file_name is needed..!";
 		return false;
 	}
-	if (Params.output_file_name.length() <= 0) {
+	if (kParams.output_file_name.length() <= 0) {
 		cout << "output_file_name is needed..!";
 		return false;
 	}
-	if (Params.working_directory.length() <= 0) {
+	if (kParams.input_file_name.length() <= 0) {
 		cout << "working_directory is needed..!";
 		return false;
 	}
 	return true;
 }
+
+//void test_create_api(string kmc_db,string save_model) {
+//	//some arguments
+//	int n_hash = 7, n_bit = 4, ci = 2, cs = 1023;
+//	//kmc_database is the kmc database file,such as 'RS_k31_f1-1000.res'
+//	string kmc_database = kmc_db;
+//	//get a model with ci... 
+//	KModel* kmodel = get_model(ci, cs, n_hash, n_bit);
+//	//initialize the model
+//	kmodel->init(kmc_database);
+//	//save model to an existing directory "model_dir",
+//	kmodel->save(save_model);
+//}
 
 
 
@@ -109,33 +132,23 @@ int run(int argc, char* argv[]) {
 		read_me();
 		return -1;
 	}
+
 	char cmd[1024];
-	sprintf(cmd, "./kmc_api/kmc -k%d -t%d -ci%d -cs%d %s %s %s", Params.k, Params.t, Params.ci, Params.cs,
-		Params.input_file_name.c_str(), Params.output_file_name.c_str(), Params.working_directory.c_str());
+	sprintf(cmd, "./kmc_api/kmc -k%d -t%d -ci%d -cs%d %s %s %s", kParams.k, kParams.t, kParams.ci, kParams.cs,
+		kParams.input_file_name.c_str(), kParams.output_file_name.c_str(), kParams.working_directory.c_str());
 	cout << cmd << endl;
 	system(cmd);
 	cout << endl;
 
-	//cout << Params.output_file_name << endl;
-	cout << "kmcEx status:" << endl;
-	KModel* kmodel = get_model(Params.ci, Params.cs, Params.num_hash, Params.num_bit);
-	kmodel->init_KModel(Params.output_file_name);
+	KModel* kmodel = get_model(kParams.ci, kParams.cs, kParams.num_hash, kParams.num_bit);
+	kmodel->init(kParams.output_file_name);
 	kmodel->show_kmodel_info();
 	//save model to the disk
-	string save_dir = Params.working_directory + "/" + Tools::get_file_name(Params.output_file_name);
+	string save_dir = kParams.working_directory + "/" + Tools::get_file_name(kParams.output_file_name);
 	system(("mkdir -p " + save_dir).c_str()); //new a dirctory - -;
-	kmodel->save_model(save_dir);
-	//kmodel->test_model(Params.output_file_name);
-	cout << "\n-------\n";
-	cout << "   kmcEx model is successfully saved in  :  " << save_dir << "\n\n";
+	kmodel->save(save_dir);
 }
 
-
-void test_kmer_kmodel(string kmer, string model_dir = "save_model") {
-	KModel* kmodel = get_model(2, Params.num_hash, Params.num_bit);
-	kmodel->load_model(model_dir);
-	cout << kmodel->kmer_to_occ(kmer) << endl;
-}
 
 
 

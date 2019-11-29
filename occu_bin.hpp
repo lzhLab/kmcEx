@@ -91,7 +91,7 @@ public:
 		return this->max_counter;
 	}
 
-	int get_nhash() {
+	int get_hash_number() {
 		return this->n_hash;
 	}
 

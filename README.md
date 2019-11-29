@@ -57,7 +57,7 @@ RS_k31_f1-1023.res.kmc_suf
 the model saved  in  /tmp/RS_k31_f1-1023.res  (working_directory)，i.e.:
 
 ```
-bit1.bin  bit2.bin  bloom2.bin  bloom.bin  hash.bin  last_map.bin  occ.bin  param.conf
+header  km.bin  rest.bin
 ```
 
 
@@ -82,14 +82,14 @@ kmodel->save_model("/tmp/rs_f2-1000_model");
 ```c
 #include "kmodel.hpp"
 //some arguments
-string save_dir="/tmp/rs_f2-1000_model"
+string save_dir = "/tmp/rs_f2-1000_model";
 KModel* kmodel = get_model(save_dir);
 //query one kmer 
-string kmer=...;
-int occ=kmodel->kmer_to_occ(kmer) 
+string kmer = ...;
+int occ = kmodel->kmer_to_occ(kmer)
 //query multiple kmer with multiple threads
-vector<string> kmer_v=...;
-vector<int> out=kmodel->kmer_to_occ(kmer_v);
+vector<string> kmer_v = ...;
+vector<int> out = kmodel->kmer_to_occ(kmer_v);
 ```
 
 # reference
